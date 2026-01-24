@@ -85,7 +85,6 @@ FROM scratch
 COPY --from=base / /
 
 ARG USERNAME=ubuntu
-USER $USERNAME
 ENV HOME=/home/$USERNAME
 WORKDIR $HOME
 ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
