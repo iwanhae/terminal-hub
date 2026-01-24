@@ -8,6 +8,7 @@ interface TerminalProps {
 }
 
 const TerminalComponent = ({ wsUrl }: TerminalProps) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -58,12 +59,22 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
     terminalInstanceRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
+    // Initial fit immediately to avoid 80x24 default
+    try {
+      const dims = fitAddon.proposeDimensions();
+      if (dims && dims.cols >= 2 && dims.rows >= 2) {
+        fitAddon.fit();
+      }
+    } catch (error) {
+      console.warn("Initial fit failed", error);
+    }
+
     // Helper function to send resize events
     const sendResize = (ws: WebSocket | null) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const dims = fitAddon.proposeDimensions();
-        if (dims) {
-          terminal.resize(dims.cols, dims.rows);
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        terminal.resize(dims.cols, dims.rows);
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({
               type: "resize",
@@ -75,9 +86,8 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
       }
     };
 
-    // Initial fit with small delay
+    // Initial fit with small delay to ensure container is fully laid out
     const initialFitTimeout = setTimeout(() => {
-      fitAddon.fit();
       sendResize(wsRef.current);
     }, 100);
 
@@ -121,29 +131,45 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
 
     terminal.onData(handleData);
 
-    // Window resize handling
+    // Container resize handling with ResizeObserver
     let resizeTimeout: number;
-    const handleResize = () => {
+    const resizeObserver = new ResizeObserver(() => {
+      // Debounce resize
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
-        fitAddon.fit();
-        sendResize(ws);
+        if (wrapperRef.current && terminalRef.current) {
+          try {
+            const dims = fitAddon.proposeDimensions();
+            if (dims && dims.cols >= 2 && dims.rows >= 2) {
+              fitAddon.fit();
+              sendResize(ws);
+            }
+          } catch (error) {
+            console.error("Resize error:", error);
+          }
+        }
       }, 100);
-    };
+    });
 
-    window.addEventListener("resize", handleResize);
+    if (wrapperRef.current) {
+      resizeObserver.observe(wrapperRef.current);
+    }
 
     // Cleanup
     return () => {
       clearTimeout(initialFitTimeout);
       clearTimeout(resizeTimeout);
-      window.removeEventListener("resize", handleResize);
+      resizeObserver.disconnect();
       terminal.dispose();
       ws.close();
     };
   }, [wsUrl]);
 
-  return <div ref={terminalRef} style={{ height: "100%", width: "100%" }} />;
+  return (
+    <div ref={wrapperRef} className="w-full h-full relative min-w-0 min-h-0">
+      <div ref={terminalRef} className="absolute inset-0 overflow-hidden" />
+    </div>
+  );
 };
 
 export default TerminalComponent;

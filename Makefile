@@ -14,6 +14,12 @@ LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 run: build-frontend build
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
+## run: Run the application
+.PHONY: run
+run: build
+	@echo "Running $(BINARY_NAME)..."
+	./$(BUILD_DIR)/$(BINARY_NAME)
+
 ## build-frontend: Build the React frontend
 .PHONY: build-frontend
 build-frontend:
@@ -21,19 +27,18 @@ build-frontend:
 	@cd frontend && npm run build
 	@echo "Frontend build complete"
 
-## build: Build the application
-.PHONY: build
-build: clean
+.PHONY: build-backend
+build-backend: build-frontend
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
-## run: Run the application
-.PHONY: run
-run: build
-	@echo "Running $(BINARY_NAME)..."
-	./$(BUILD_DIR)/$(BINARY_NAME)
+## build: Build the application
+.PHONY: build
+build: build-backend build-frontend
+	@echo "Building $(BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
 
 ## test: Run all tests
 .PHONY: test

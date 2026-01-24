@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -67,12 +66,12 @@ type TerminalSession struct {
 	ptySvc  PTYService
 
 	// Metadata
-	metadata        SessionMetadata
-	metadataMu      sync.RWMutex
+	metadata   SessionMetadata
+	metadataMu sync.RWMutex
 
 	// Terminal dimensions
-	termCols int
-	termRows int
+	termCols   int
+	termRows   int
 	termSizeMu sync.RWMutex
 
 	// Clients management
@@ -128,16 +127,16 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 
 	now := time.Now()
 	session := &TerminalSession{
-		id:             config.ID,
-		ptyFile:        ptmx,
-		cmd:            cmd,
-		history:        NewInMemoryHistory(config.HistorySize),
-		ptySvc:         ptySvc,
+		id:      config.ID,
+		ptyFile: ptmx,
+		cmd:     cmd,
+		history: NewInMemoryHistory(config.HistorySize),
+		ptySvc:  ptySvc,
 		metadata: SessionMetadata{
-			Name:            config.Name,
-			CreatedAt:       now,
-			LastActivityAt:  now,
-			ClientCount:     0,
+			Name:             config.Name,
+			CreatedAt:        now,
+			LastActivityAt:   now,
+			ClientCount:      0,
 			WorkingDirectory: config.WorkingDirectory,
 		},
 		termCols:       80, // Default size
@@ -197,15 +196,6 @@ func (s *TerminalSession) AddClient(client WebSocketClient) error {
 		client.Send(hist)
 	}
 
-	// Send current terminal size to new client
-	s.termSizeMu.RLock()
-	cols, rows := s.termCols, s.termRows
-	s.termSizeMu.RUnlock()
-
-	// Send resize message to client so they can adjust their terminal
-	sizeMsg := []byte(fmt.Sprintf("\x1b[8;%d;%dt", rows, cols))
-	client.Send(sizeMsg)
-
 	return nil
 }
 
@@ -221,6 +211,11 @@ func (s *TerminalSession) RemoveClient(client WebSocketClient) {
 	delete(s.clients, client)
 
 	// Remove from ordered clients
+	isPrimary := false
+	if len(s.orderedClients) > 0 && s.orderedClients[0] == client {
+		isPrimary = true
+	}
+
 	for i, c := range s.orderedClients {
 		if c == client {
 			s.orderedClients = append(s.orderedClients[:i], s.orderedClients[i+1:]...)
@@ -233,6 +228,14 @@ func (s *TerminalSession) RemoveClient(client WebSocketClient) {
 	s.metadata.ClientCount = len(s.clients)
 	s.metadata.LastActivityAt = time.Now()
 	s.metadataMu.Unlock()
+
+	// If the primary client changed, resize the PTY to the current dimensions
+	if isPrimary && len(s.orderedClients) > 0 {
+		s.termSizeMu.RLock()
+		cols, rows := s.termCols, s.termRows
+		s.termSizeMu.RUnlock()
+		s.ptySvc.SetSize(s.ptyFile, cols, rows)
+	}
 }
 
 // Write writes data to the PTY
@@ -266,21 +269,20 @@ func (s *TerminalSession) Resize(client WebSocketClient, cols, rows int) error {
 
 	// Store the terminal dimensions
 	s.termSizeMu.Lock()
+	changed := s.termCols != cols || s.termRows != rows
 	s.termCols = cols
 	s.termRows = rows
 	s.termSizeMu.Unlock()
 
-	// Only allow PTY resize from the first (primary) client
-	if len(s.orderedClients) > 0 {
-		firstClient := s.orderedClients[0]
-		if client == firstClient {
-			return s.ptySvc.SetSize(s.ptyFile, cols, rows)
-		}
+	if !changed {
+		// Force redraw by toggling size slightly if it's the same
+		// This ensures SIGWINCH is sent even if the terminal size hasn't changed
+		// which often happens on page refresh.
+		s.ptySvc.SetSize(s.ptyFile, cols, rows+1)
+		return s.ptySvc.SetSize(s.ptyFile, cols, rows)
 	}
 
-	// For non-primary clients, just update the stored size (don't resize PTY)
-	// This allows their local xterm to be sized correctly
-	return nil
+	return s.ptySvc.SetSize(s.ptyFile, cols, rows)
 }
 
 // Close closes the terminal session and cleanup resources

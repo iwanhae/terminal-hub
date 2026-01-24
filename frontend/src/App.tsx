@@ -1,25 +1,34 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { SessionProvider } from './contexts/SessionContext';
-import Sidebar from './components/Sidebar';
-import SessionList from './pages/SessionList';
-import TerminalPage from './pages/TerminalPage';
-import { Toaster } from 'react-hot-toast';
-import './App.css';
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { SessionProvider } from "./contexts/SessionContext";
+import Sidebar from "./components/Sidebar";
+import SessionGrid from "./components/SessionGrid"; // Updated import
+import TerminalPage from "./pages/TerminalPage";
+import { Toaster } from "react-hot-toast";
 
 function App() {
   return (
     <SessionProvider>
       <Router>
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-200 font-sans">
           <Sidebar />
-          <main style={{ flex: 1, overflow: 'auto' }}>
+          <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
             <Routes>
-              <Route path="/" element={<SessionList />} />
+              <Route path="/" element={<SessionGrid />} />{" "}
+              {/* Updated element */}
               <Route path="/session/:sessionId" element={<TerminalPage />} />
             </Routes>
           </main>
         </div>
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: "#18181b",
+              color: "#e4e4e7",
+              border: "1px solid #27272a",
+            },
+          }}
+        />
       </Router>
     </SessionProvider>
   );

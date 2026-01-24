@@ -1,17 +1,35 @@
-import React, { useState } from 'react';
-import { useSessions } from '../contexts/SessionContext';
+import React, { useState } from "react";
+import { useSessions } from "../contexts/useSessions";
 
 interface CreateSessionDialogProps {
-  onClose: () => void;
+  readonly onClose: () => void;
+  readonly initialValues?: {
+    readonly name?: string;
+    readonly workingDirectory?: string;
+    readonly command?: string;
+    readonly envVars?: string;
+  };
 }
 
-export default function CreateSessionDialog({ onClose }: CreateSessionDialogProps) {
+export default function CreateSessionDialog({
+  onClose,
+  initialValues,
+}: CreateSessionDialogProps) {
   const { createSession } = useSessions();
-  const [name, setName] = useState('');
-  const [workingDirectory, setWorkingDirectory] = useState('');
-  const [command, setCommand] = useState('');
-  const [envVars, setEnvVars] = useState('');
+  const [name, setName] = useState(initialValues?.name ?? "");
+  const [workingDirectory, setWorkingDirectory] = useState(
+    initialValues?.workingDirectory ?? "",
+  );
+  const [command, setCommand] = useState(initialValues?.command ?? "");
+  const [envVars, setEnvVars] = useState(initialValues?.envVars ?? "");
   const [loading, setLoading] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    // Small timeout to ensure element is mounted/visible before focusing
+    const timer = setTimeout(() => inputRef.current?.focus(), 200);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,25 +40,25 @@ export default function CreateSessionDialog({ onClose }: CreateSessionDialogProp
       // Parse environment variables from "KEY=VALUE" format (one per line)
       const envVarsMap: Record<string, string> = {};
       if (envVars.trim()) {
-        envVars.split('\n').forEach((line) => {
-          const [key, ...valueParts] = line.split('=');
+        for (const line of envVars.split("\n")) {
+          const [key, ...valueParts] = line.split("=");
           if (key && valueParts.length > 0) {
-            envVarsMap[key.trim()] = valueParts.join('=').trim();
+            envVarsMap[key.trim()] = valueParts.join("=").trim();
           }
-        });
+        }
       }
 
       const sessionId = await createSession(
         name.trim(),
         workingDirectory.trim() || undefined,
         command.trim() || undefined,
-        Object.keys(envVarsMap).length > 0 ? envVarsMap : undefined
+        Object.keys(envVarsMap).length > 0 ? envVarsMap : undefined,
       );
 
       // Navigate to the new session
       window.location.href = `/session/${sessionId}`;
-    } catch (err) {
-      console.error('Failed to create session:', err);
+    } catch (error) {
+      console.error("Failed to create session:", error);
     } finally {
       setLoading(false);
     }
@@ -48,145 +66,119 @@ export default function CreateSessionDialog({ onClose }: CreateSessionDialogProp
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+      role="button"
+      tabIndex={0}
     >
       <div
-        style={{
-          backgroundColor: 'white',
-          padding: '30px',
-          borderRadius: '8px',
-          maxWidth: '500px',
-          width: '90%',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-        }}
-        onClick={(e) => e.stopPropagation()}
+        className="bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        role="dialog"
       >
-        <h2>Create New Session</h2>
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              Session Name *
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-              }}
-              placeholder="My Development Session"
-            />
-          </div>
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+            <span className="text-indigo-400">⚡</span>{" "}
+            {initialValues ? "Duplicate Session" : "Create New Session"}
+          </h2>
+          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+            <div>
+              <label
+                htmlFor="session-name"
+                className="block text-sm font-medium text-zinc-400 mb-1"
+              >
+                Session Name <span className="text-red-400">*</span>
+              </label>
+              <input
+                id="session-name"
+                ref={inputRef}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                placeholder="e.g. Backend Server"
+              />
+            </div>
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              Working Directory (optional)
-            </label>
-            <input
-              type="text"
-              value={workingDirectory}
-              onChange={(e) => setWorkingDirectory(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-              }}
-              placeholder="/home/user/projects"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor="working-directory"
+                className="block text-sm font-medium text-zinc-400 mb-1"
+              >
+                Working Directory
+              </label>
+              <input
+                id="working-directory"
+                type="text"
+                value={workingDirectory}
+                onChange={(e) => setWorkingDirectory(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder="/path/to/project"
+              />
+            </div>
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              Initial Command (optional)
-            </label>
-            <input
-              type="text"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-              }}
-              placeholder="npm run dev"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor="initial-command"
+                className="block text-sm font-medium text-zinc-400 mb-1"
+              >
+                Initial Command
+              </label>
+              <input
+                id="initial-command"
+                type="text"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder="npm run dev"
+              />
+            </div>
 
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              Environment Variables (optional)
-            </label>
-            <textarea
-              value={envVars}
-              onChange={(e) => setEnvVars(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
-                border: '1px solid #ccc',
-                borderRadius: '4px',
-                minHeight: '100px',
-                fontFamily: 'monospace',
-              }}
-              placeholder="NODE_ENV=development&#10;API_URL=http://localhost:3000"
-            />
-            <small style={{ color: '#666' }}>One variable per line in KEY=VALUE format</small>
-          </div>
+            <div>
+              <label
+                htmlFor="env-vars"
+                className="block text-sm font-medium text-zinc-400 mb-1"
+              >
+                Environment Variables
+              </label>
+              <textarea
+                id="env-vars"
+                value={envVars}
+                onChange={(e) => setEnvVars(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-zinc-200 font-mono text-sm focus:outline-none focus:border-indigo-500 transition-colors h-24"
+                placeholder="NODE_ENV=development&#10;PORT=3000"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Key=Value format, one per line
+              </p>
+            </div>
 
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !name.trim()}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: loading || !name.trim() ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {loading ? 'Creating...' : 'Create Session'}
-            </button>
-          </div>
-        </form>
+            <div className="flex gap-3 justify-end mt-8">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading}
+                className="px-4 py-2 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || !name.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading
+                  ? "Creating..."
+                  : initialValues
+                    ? "Duplicate"
+                    : "Create Session"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

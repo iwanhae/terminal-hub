@@ -5,6 +5,8 @@ export interface SessionMetadata {
   last_activity_at: string;
   client_count: number;
   working_directory?: string;
+  command?: string;
+  env_vars?: Record<string, string>;
 }
 
 export interface SessionInfo {
@@ -25,7 +27,7 @@ export interface CreateSessionResponse {
   metadata: SessionMetadata;
 }
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = "/api";
 
 // API service functions
 export const api = {
@@ -35,15 +37,17 @@ export const api = {
     if (!response.ok) {
       throw new Error(`Failed to list sessions: ${response.statusText}`);
     }
-    return response.json();
+    return response.json() as Promise<SessionInfo[]>;
   },
 
   // Create a new session
-  async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
+  async createSession(
+    request: CreateSessionRequest,
+  ): Promise<CreateSessionResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -53,13 +57,13 @@ export const api = {
       throw new Error(`Failed to create session: ${errorText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<CreateSessionResponse>;
   },
 
   // Delete a session
   async deleteSession(sessionId: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
 
     if (!response.ok) {

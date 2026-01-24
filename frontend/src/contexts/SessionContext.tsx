@@ -1,21 +1,30 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import type { ReactNode } from 'react';
-import type { SessionInfo } from '../services/api';
-import { api } from '../services/api';
-import toast from 'react-hot-toast';
+import { createContext, useContext, useState, useEffect } from "react";
+import type { ReactNode } from "react";
+import type { SessionInfo } from "../services/api";
+import { api } from "../services/api";
+import toast from "react-hot-toast";
 
 interface SessionContextType {
   sessions: SessionInfo[];
   loading: boolean;
   error: string | null;
   refreshSessions: () => Promise<void>;
-  createSession: (name: string, workingDirectory?: string, command?: string, envVars?: Record<string, string>) => Promise<string>;
+  createSession: (
+    name: string,
+    workingDirectory?: string,
+    command?: string,
+    envVars?: Record<string, string>,
+  ) => Promise<string>;
   deleteSession: (sessionId: string) => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
-export function SessionProvider({ children }: { children: ReactNode }) {
+export function SessionProvider({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,8 +35,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setError(null);
       const data = await api.listSessions();
       setSessions(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch sessions';
+    } catch (error_) {
+      const message =
+        error_ instanceof Error ? error_.message : "Failed to fetch sessions";
       setError(message);
       toast.error(message);
     } finally {
@@ -39,7 +49,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     name: string,
     workingDirectory?: string,
     command?: string,
-    envVars?: Record<string, string>
+    envVars?: Record<string, string>,
   ): Promise<string> => {
     try {
       const response = await api.createSession({
@@ -52,29 +62,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       toast.success(`Session "${name}" created successfully`);
       await refreshSessions();
       return response.id;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create session';
+    } catch (error_) {
+      const message =
+        error_ instanceof Error ? error_.message : "Failed to create session";
       toast.error(message);
-      throw err;
+      throw error_;
     }
   };
 
   const deleteSession = async (sessionId: string) => {
     try {
       await api.deleteSession(sessionId);
-      toast.success('Session deleted successfully');
+      toast.success("Session deleted successfully");
       await refreshSessions();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete session';
+    } catch (error_) {
+      const message =
+        error_ instanceof Error ? error_.message : "Failed to delete session";
       toast.error(message);
-      throw err;
+      throw error_;
     }
   };
 
   // Auto-refresh every 5 seconds
   useEffect(() => {
-    refreshSessions();
-    const interval = setInterval(refreshSessions, 5000);
+    void refreshSessions();
+    const interval = setInterval(() => void refreshSessions(), 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -94,10 +106,4 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useSessions() {
-  const context = useContext(SessionContext);
-  if (context === undefined) {
-    throw new Error('useSessions must be used within a SessionProvider');
-  }
-  return context;
-}
+export { SessionContext };
