@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Terminal Hub</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            background-color: #000;
+            overflow: hidden;
+        }
+        #terminal-container {
+            height: 100%;
+            width: 100%;
+        }
+    </style>
+    <!-- xterm.js CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+</head>
+<body>
+    <div id="terminal-container"></div>
+    <script>
+        // Terminal setup
+        const term = new Terminal({
+            cursorBlink: true,
+            macOptionIsMeta: true,
+            scrollback: 1000,
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        
+        term.open(document.getElementById('terminal-container'));
+        fitAddon.fit();
+
+        // WebSocket setup
+        const protocol = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+        const wsUrl = protocol + location.host + '/ws';
+        const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            term.write('\r\n\x1b[32mConnected to Terminal Hub\x1b[0m\r\n');
+            // Initial resize to ensure backend knows our size
+            sendResize();
+        };
+
+        ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                 // Try to parse as JSON first (for control messages if any), otherwise treat as data
+                 // But for this simple implementation, we might just mix raw data. 
+                 // Wait, the backend might send raw PTY data.
+                 // Let's assume raw text data for PTY output.
+                 term.write(event.data);
+            } else {
+                // If binary
+                const reader = new FileReader();
+                reader.onload = () => {
+                    term.write(reader.result);
+                };
+                reader.readAsText(event.data);
+            }
+        };
+
+        ws.onclose = () => {
+            term.write('\r\n\x1b[31mConnection Closed\x1b[0m\r\n');
+        };
+
+        ws.onerror = (err) => {
+            console.error('WebSocket Error:', err);
+        };
+
+        // Input handling
+        term.onData(data => {
+            if (ws.readyState === WebSocket.OPEN) {
+                // Send raw input with a prefix or wrapper? 
+                // Plan said: "term.onData(data => ws.send(data))"
+                // Usually we need to distinguish resizing from data.
+                // A common pattern is using a JSON wrapper or a first-byte prefix.
+                // Let's use JSON for everything to be safe and extensible? 
+                // Or: 
+                // Text message = Input
+                // JSON message (special structure) = Resize?
+                // Or: Everything is JSON.
+                
+                // Let's go with JSON for structure.
+                ws.send(JSON.stringify({
+                    type: 'input',
+                    data: data
+                }));
+            }
+        });
+
+        // Resize handling
+        function sendResize() {
+            if (ws.readyState === WebSocket.OPEN) {
+                const dims = fitAddon.proposeDimensions();
+                if (dims) {
+                    ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: dims.cols,
+                        rows: dims.rows
+                    }));
+                    fitAddon.fit();
+                }
+            }
+        }
+
+        window.addEventListener('resize', () => {
+             fitAddon.fit();
+             sendResize();
+        });
+        
+        // Also hook into term resize event if needed, but window resize is usually the trigger.
+    </script>
+</body>
+</html>
