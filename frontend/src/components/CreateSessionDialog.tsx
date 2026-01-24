@@ -47,6 +47,9 @@ export default function CreateSessionDialog({
         Object.keys(envVarsMap).length > 0 ? envVarsMap : undefined,
       );
 
+      // Close the dialog before navigating
+      onClose();
+
       // Navigate to the new session using React Router
       const result = navigate(`/session/${sessionId}`);
       if (result instanceof Promise) {
