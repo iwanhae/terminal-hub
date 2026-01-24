@@ -381,8 +381,17 @@ func (s *TerminalSession) readPTY() {
 			log.Printf("Error writing to history: %v", err)
 		}
 
-		// Broadcast to all clients
-		s.broadcast <- data
+		// Broadcast to all clients - hold lock to prevent race with Close()
+		s.closeMu.Lock()
+		closed = s.closed
+		if !closed {
+			select {
+			case s.broadcast <- data:
+			default:
+				// Channel buffer full (shouldn't happen with size 256), skip
+			}
+		}
+		s.closeMu.Unlock()
 	}
 }
 

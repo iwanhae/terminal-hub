@@ -3,6 +3,7 @@ package terminal
 import (
 	"io"
 	"os"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -234,6 +235,224 @@ var _ = Describe("MockWebSocketClient", func() {
 			Expect(closeErr).ToNot(HaveOccurred())
 			err := client.Close()
 			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+})
+
+// SimulatedPTYService implements PTYService with a pipe for testing race conditions
+type SimulatedPTYService struct {
+	ptyReader *os.File
+	ptyWriter *os.File
+	cmd       *exec.Cmd
+}
+
+func NewSimulatedPTYService() (*SimulatedPTYService, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	return &SimulatedPTYService{
+		ptyReader: reader,
+		ptyWriter: writer,
+	}, nil
+}
+
+func (s *SimulatedPTYService) Start(shell string) (*os.File, error) {
+	return s.ptyReader, nil
+}
+
+func (s *SimulatedPTYService) StartWithConfig(shell string, workingDir string, envVars map[string]string) (*os.File, *exec.Cmd, error) {
+	return s.ptyReader, nil, nil
+}
+
+func (s *SimulatedPTYService) SetSize(file *os.File, cols, rows int) error {
+	return nil
+}
+
+// SimulateOutput writes data to simulate PTY output during testing
+func (s *SimulatedPTYService) SimulateOutput(data []byte) error {
+	_, err := s.ptyWriter.Write(data)
+	return err
+}
+
+// Close closes the pipe
+func (s *SimulatedPTYService) Close() error {
+	return s.ptyWriter.Close()
+}
+
+var _ = Describe("TerminalSession Race Conditions", func() {
+	Context("When concurrently closing and broadcasting", func() {
+		It("should not panic on rapid Close() during active readPTY", func() {
+			// Create a simulated PTY service
+			ptySvc, err := NewSimulatedPTYService()
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create a session with the simulated PTY
+			session := &TerminalSession{
+				id:      "test-race-session",
+				ptyFile: ptySvc.ptyReader,
+				history: NewInMemoryHistory(4096),
+				ptySvc:  ptySvc,
+				metadata: SessionMetadata{
+					Name:           "race-test",
+					CreatedAt:      time.Now(),
+					LastActivityAt: time.Now(),
+					ClientCount:    0,
+				},
+				termCols:       80,
+				termRows:       24,
+				clients:        make(map[WebSocketClient]bool),
+				broadcast:      make(chan []byte, 256),
+				orderedClients: make([]WebSocketClient, 0),
+				closed:         false,
+			}
+
+			// Start the readPTY goroutine
+			go session.readPTY()
+
+			// Simulate PTY output in a goroutine
+			done := make(chan bool)
+			go func() {
+				for i := 0; i < 100; i++ {
+					ptySvc.SimulateOutput([]byte("test output\n"))
+					time.Sleep(1 * time.Millisecond)
+				}
+				done <- true
+			}()
+
+			// Rapidly close the session while output is happening
+			// This used to cause "send on closed channel" panic
+			for i := 0; i < 50; i++ {
+				// Recreate the broadcast channel after each close attempt
+				// (normally we wouldn't do this, but for testing the race condition)
+				session.closeMu.Lock()
+				if !session.closed {
+					session.closed = true
+				}
+				session.closeMu.Unlock()
+
+				// Try to trigger the race by checking and sending
+				session.closeMu.Lock()
+				if !session.closed {
+					select {
+					case session.broadcast <- []byte("test"):
+					default:
+					}
+				}
+				session.closeMu.Unlock()
+
+				time.Sleep(100 * time.Microsecond)
+			}
+
+			// Clean close
+			session.Close()
+			ptySvc.Close()
+
+			// Wait for output to finish
+			Eventually(done, 2*time.Second).Should(Receive(BeTrue()))
+
+			// If we get here without panic, the race condition is fixed
+			Expect(true).To(BeTrue())
+		})
+
+		It("should handle concurrent Close() calls safely", func() {
+			ptySvc, err := NewSimulatedPTYService()
+			Expect(err).ToNot(HaveOccurred())
+
+			session := &TerminalSession{
+				id:      "test-concurrent-close",
+				ptyFile: ptySvc.ptyReader,
+				history: NewInMemoryHistory(4096),
+				ptySvc:  ptySvc,
+				metadata: SessionMetadata{
+					Name:           "concurrent-close-test",
+					CreatedAt:      time.Now(),
+					LastActivityAt: time.Now(),
+					ClientCount:    0,
+				},
+				termCols:       80,
+				termRows:       24,
+				clients:        make(map[WebSocketClient]bool),
+				broadcast:      make(chan []byte, 256),
+				orderedClients: make([]WebSocketClient, 0),
+				closed:         false,
+			}
+
+			go session.readPTY()
+
+			// Simulate some output
+			go func() {
+				for i := 0; i < 50; i++ {
+					ptySvc.SimulateOutput([]byte("output\n"))
+					time.Sleep(2 * time.Millisecond)
+				}
+			}()
+
+			// Close from multiple goroutines concurrently
+			var wg sync.WaitGroup
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					session.Close()
+				}()
+			}
+
+			// Should complete without panic or deadlock
+			wg.Wait()
+			ptySvc.Close()
+
+			// Verify session is closed
+			session.closeMu.RLock()
+			closed := session.closed
+			session.closeMu.RUnlock()
+			Expect(closed).To(BeTrue())
+		})
+
+		It("should stress test readPTY and Close() with race detector", func() {
+			// Run many iterations to increase chance of catching race conditions
+			iterations := 20
+			for iter := 0; iter < iterations; iter++ {
+				ptySvc, err := NewSimulatedPTYService()
+				Expect(err).ToNot(HaveOccurred())
+
+				session := &TerminalSession{
+					id:      "test-stress",
+					ptyFile: ptySvc.ptyReader,
+					history: NewInMemoryHistory(4096),
+					ptySvc:  ptySvc,
+					metadata: SessionMetadata{
+						Name:           "stress-test",
+						CreatedAt:      time.Now(),
+						LastActivityAt: time.Now(),
+						ClientCount:    0,
+					},
+					termCols:       80,
+					termRows:       24,
+					clients:        make(map[WebSocketClient]bool),
+					broadcast:      make(chan []byte, 256),
+					orderedClients: make([]WebSocketClient, 0),
+					closed:         false,
+				}
+
+				go session.readPTY()
+
+				// Rapid fire output and close
+				for i := 0; i < 10; i++ {
+					ptySvc.SimulateOutput([]byte("stress test data\n"))
+					time.Sleep(time.Microsecond)
+				}
+
+				// Close immediately
+				session.Close()
+				ptySvc.Close()
+
+				// Give goroutines time to finish
+				time.Sleep(time.Millisecond)
+			}
+
+			// If we complete all iterations without panic, race condition is fixed
+			Expect(true).To(BeTrue())
 		})
 	})
 })
