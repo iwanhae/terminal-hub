@@ -103,7 +103,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			w, err := conn.NextWriter(websocket.TextMessage)
+			w, err := conn.NextWriter(websocket.BinaryMessage)
 			if err != nil {
 				return
 			}

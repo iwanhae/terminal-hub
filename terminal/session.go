@@ -65,10 +65,10 @@ type TerminalSession struct {
 	ptySvc  PTYService
 
 	// Clients management
-	clients         map[WebSocketClient]bool
-	clientsMu       sync.Mutex
-	broadcast       chan []byte
-	orderedClients  []WebSocketClient
+	clients        map[WebSocketClient]bool
+	clientsMu      sync.Mutex
+	broadcast      chan []byte
+	orderedClients []WebSocketClient
 
 	// Lifecycle
 	closed  bool
@@ -277,7 +277,8 @@ func (s *TerminalSession) readPTY() {
 			return
 		}
 
-		data := buf[:n]
+		data := make([]byte, n)
+		copy(data, buf[:n])
 
 		// Save to history
 		s.history.Write(data)

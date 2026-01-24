@@ -23,7 +23,7 @@ build: clean
 .PHONY: run
 run: build
 	@echo "Running $(BINARY_NAME)..."
-	./$(BINARY_NAME)
+	./$(BUILD_DIR)/$(BINARY_NAME)
 
 ## test: Run all tests
 .PHONY: test

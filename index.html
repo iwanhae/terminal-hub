@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Terminal Hub</title>
     <style>
-        html, body {
+        html,
+        body {
             height: 100%;
             margin: 0;
             background-color: #000;
             overflow: hidden;
         }
+
         #terminal-container {
             height: 100%;
             width: 100%;
@@ -20,71 +23,86 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 </head>
+
 <body>
     <div id="terminal-container"></div>
     <script>
+        // Use a high-quality monospace font stack
+        const theme = {
+            background: '#000000',
+            foreground: '#ffffff',
+            cursor: '#ffffff',
+            selection: 'rgba(255, 255, 255, 0.3)',
+            black: '#000000',
+            red: '#e06c75',
+            green: '#98c379',
+            yellow: '#d19a66',
+            blue: '#61afef',
+            magenta: '#c678dd',
+            cyan: '#56b6c2',
+            white: '#abb2bf',
+            brightBlack: '#5c6370',
+            brightRed: '#e06c75',
+            brightGreen: '#98c379',
+            brightYellow: '#d19a66',
+            brightBlue: '#61afef',
+            brightMagenta: '#c678dd',
+            brightCyan: '#56b6c2',
+            brightWhite: '#ffffff'
+        };
+
         // Terminal setup
         const term = new Terminal({
             cursorBlink: true,
             macOptionIsMeta: true,
             scrollback: 1000,
+            fontSize: 14,
+            fontFamily: 'monospace',
+            theme: theme,
+            allowProposedApi: true
         });
         const fitAddon = new FitAddon.FitAddon();
         term.loadAddon(fitAddon);
-        
+
         term.open(document.getElementById('terminal-container'));
-        fitAddon.fit();
+
+        // Use a small delay for the initial fit to ensure the container is fully rendered
+        setTimeout(() => {
+            fitAddon.fit();
+            sendResize();
+        }, 100);
 
         // WebSocket setup
         const protocol = (location.protocol === 'https:') ? 'wss://' : 'ws://';
         const wsUrl = protocol + location.host + '/ws';
         const ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
 
         ws.onopen = () => {
-            term.write('\r\n\x1b[32mConnected to Terminal Hub\x1b[0m\r\n');
-            // Initial resize to ensure backend knows our size
+            term.write('\r\n\x1b[32m[SYSTEM] Connected to Terminal Hub\x1b[0m\r\n');
             sendResize();
         };
 
         ws.onmessage = (event) => {
-            if (typeof event.data === 'string') {
-                 // Try to parse as JSON first (for control messages if any), otherwise treat as data
-                 // But for this simple implementation, we might just mix raw data. 
-                 // Wait, the backend might send raw PTY data.
-                 // Let's assume raw text data for PTY output.
-                 term.write(event.data);
+            if (event.data instanceof ArrayBuffer) {
+                term.write(new Uint8Array(event.data));
             } else {
-                // If binary
-                const reader = new FileReader();
-                reader.onload = () => {
-                    term.write(reader.result);
-                };
-                reader.readAsText(event.data);
+                term.write(event.data);
             }
         };
 
         ws.onclose = () => {
-            term.write('\r\n\x1b[31mConnection Closed\x1b[0m\r\n');
+            term.write('\r\n\x1b[31m[SYSTEM] Connection Closed\x1b[0m\r\n');
         };
 
         ws.onerror = (err) => {
             console.error('WebSocket Error:', err);
+            term.write('\r\n\x1b[31m[SYSTEM] WebSocket Error\x1b[0m\r\n');
         };
 
         // Input handling
         term.onData(data => {
             if (ws.readyState === WebSocket.OPEN) {
-                // Send raw input with a prefix or wrapper? 
-                // Plan said: "term.onData(data => ws.send(data))"
-                // Usually we need to distinguish resizing from data.
-                // A common pattern is using a JSON wrapper or a first-byte prefix.
-                // Let's use JSON for everything to be safe and extensible? 
-                // Or: 
-                // Text message = Input
-                // JSON message (special structure) = Resize?
-                // Or: Everything is JSON.
-                
-                // Let's go with JSON for structure.
                 ws.send(JSON.stringify({
                     type: 'input',
                     data: data
@@ -97,22 +115,27 @@
             if (ws.readyState === WebSocket.OPEN) {
                 const dims = fitAddon.proposeDimensions();
                 if (dims) {
+                    term.resize(dims.cols, dims.rows);
                     ws.send(JSON.stringify({
                         type: 'resize',
                         cols: dims.cols,
                         rows: dims.rows
                     }));
-                    fitAddon.fit();
                 }
             }
         }
 
+        let resizeTimeout;
         window.addEventListener('resize', () => {
-             fitAddon.fit();
-             sendResize();
+            // Debounce resize events
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                fitAddon.fit();
+                sendResize();
+            }, 100);
         });
-        
-        // Also hook into term resize event if needed, but window resize is usually the trigger.
+
     </script>
 </body>
+
 </html>
