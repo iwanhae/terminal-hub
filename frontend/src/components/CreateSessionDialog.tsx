@@ -4,26 +4,17 @@ import { useSessions } from "../contexts/useSessions";
 
 interface CreateSessionDialogProps {
   readonly onClose: () => void;
-  readonly initialValues?: {
-    readonly name?: string;
-    readonly workingDirectory?: string;
-    readonly command?: string;
-    readonly envVars?: string;
-  };
 }
 
 export default function CreateSessionDialog({
   onClose,
-  initialValues,
 }: CreateSessionDialogProps) {
   const { createSession } = useSessions();
   const navigate = useNavigate();
-  const [name, setName] = useState(initialValues?.name ?? "");
-  const [workingDirectory, setWorkingDirectory] = useState(
-    initialValues?.workingDirectory ?? "",
-  );
-  const [command, setCommand] = useState(initialValues?.command ?? "");
-  const [envVars, setEnvVars] = useState(initialValues?.envVars ?? "");
+  const [name, setName] = useState("");
+  const [workingDirectory, setWorkingDirectory] = useState("");
+  const [command, setCommand] = useState("");
+  const [envVars, setEnvVars] = useState("");
   const [loading, setLoading] = useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -77,8 +68,6 @@ export default function CreateSessionDialog({
     });
   };
 
-  const buttonText = initialValues ? "Duplicate" : "Create Session";
-
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -97,8 +86,7 @@ export default function CreateSessionDialog({
       >
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-            <span className="text-indigo-400">⚡</span>{" "}
-            {initialValues ? "Duplicate Session" : "Create New Session"}
+            <span className="text-indigo-400">⚡</span> Create New Session
           </h2>
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div>
@@ -188,7 +176,7 @@ export default function CreateSessionDialog({
                 disabled={loading || !name.trim()}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? "Creating..." : buttonText}
+                {loading ? "Creating..." : "Create Session"}
               </button>
             </div>
           </form>

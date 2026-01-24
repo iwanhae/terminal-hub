@@ -1,23 +1,11 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
 import type { SessionInfo } from "../services/api";
 import TerminalComponent from "./Terminal";
-import CreateSessionDialog from "./CreateSessionDialog";
 
 export default function SessionGrid() {
   const { sessions, deleteSession } = useSessions();
   const navigate = useNavigate();
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [duplicateSessionConfig, setDuplicateSessionConfig] = useState<
-    | {
-        name: string;
-        workingDirectory?: string;
-        command?: string;
-        envVars?: string;
-      }
-    | undefined
-  >();
 
   // Sort sessions by creation time (newest first)
   // eslint-disable-next-line unicorn/no-array-sort -- spread operator creates new array
@@ -45,26 +33,6 @@ export default function SessionGrid() {
         console.error(error);
       });
     }
-  };
-
-  const handleDuplicate = (e: React.MouseEvent, session: SessionInfo) => {
-    e.stopPropagation();
-
-    // Format env vars back to string
-    let envString = "";
-    if (session.metadata.env_vars) {
-      envString = Object.entries(session.metadata.env_vars)
-        .map(([k, v]) => `${k}=${v}`)
-        .join("\n");
-    }
-
-    setDuplicateSessionConfig({
-      name: `${session.metadata.name} (Copy)`,
-      workingDirectory: session.metadata.working_directory,
-      command: session.metadata.command,
-      envVars: envString,
-    });
-    setShowCreateDialog(true);
   };
 
   if (sessions.length === 0) {
@@ -108,35 +76,6 @@ export default function SessionGrid() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => {
-                        handleDuplicate(e, session);
-                      }}
-                      className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-indigo-400 transition-colors"
-                      title="Duplicate Session"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <rect
-                          width="14"
-                          height="14"
-                          x="8"
-                          y="8"
-                          rx="2"
-                          ry="2"
-                        />
-                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-                      </svg>
-                    </button>
                     <button
                       onClick={(e) => {
                         handleDelete(
@@ -194,12 +133,6 @@ export default function SessionGrid() {
           })}
         </div>
       </div>
-      {showCreateDialog && (
-        <CreateSessionDialog
-          onClose={() => setShowCreateDialog(false)}
-          initialValues={duplicateSessionConfig}
-        />
-      )}
     </>
   );
 }

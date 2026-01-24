@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
-import type { SessionInfo } from "../services/api";
 import CreateSessionDialog from "./CreateSessionDialog";
 
 export default function Sidebar() {
@@ -28,36 +27,7 @@ export default function Sidebar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const [duplicateSessionConfig, setDuplicateSessionConfig] = useState<
-    | {
-        name: string;
-        workingDirectory?: string;
-        command?: string;
-        envVars?: string;
-      }
-    | undefined
-  >();
   const [searchQuery, setSearchQuery] = useState("");
-
-  const handleDuplicate = (e: React.MouseEvent, session: SessionInfo) => {
-    e.stopPropagation();
-
-    // Format env vars back to string
-    let envString = "";
-    if (session.metadata.env_vars) {
-      envString = Object.entries(session.metadata.env_vars)
-        .map(([k, v]) => `${k}=${v}`)
-        .join("\n");
-    }
-
-    setDuplicateSessionConfig({
-      name: `${session.metadata.name} (Copy)`,
-      workingDirectory: session.metadata.working_directory,
-      command: session.metadata.command,
-      envVars: envString,
-    });
-    setShowCreateDialog(true);
-  };
 
   const filteredSessions = sessions.filter((session) =>
     session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -116,10 +86,7 @@ export default function Sidebar() {
             </div>
           )}
           <button
-            onClick={() => {
-              setDuplicateSessionConfig(undefined);
-              setShowCreateDialog(true);
-            }}
+            onClick={() => setShowCreateDialog(true)}
             className={`w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-md shadow-sm transition-all ${collapsed ? "px-0" : ""}`}
             title="Create Session (Cmd+K)"
           >
@@ -168,39 +135,6 @@ export default function Sidebar() {
                       </div>
                     )}
 
-                    {/* Duplicate Action (Only visible on hover or active) */}
-                    {!collapsed && (
-                      <button
-                        onClick={(e) => {
-                          handleDuplicate(e, session);
-                        }}
-                        className={`p-1 hover:bg-zinc-700 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? "text-zinc-400" : "text-zinc-500"}`}
-                        title="Duplicate Session"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect
-                            width="14"
-                            height="14"
-                            x="8"
-                            y="8"
-                            rx="2"
-                            ry="2"
-                          />
-                          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-                        </svg>
-                      </button>
-                    )}
-
                     {isActive && !collapsed && (
                       <div className="w-1 h-4 bg-indigo-500 rounded-full" />
                     )}
@@ -225,10 +159,7 @@ export default function Sidebar() {
       </div>
 
       {showCreateDialog && (
-        <CreateSessionDialog
-          onClose={() => setShowCreateDialog(false)}
-          initialValues={duplicateSessionConfig}
-        />
+        <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
       )}
     </>
   );
