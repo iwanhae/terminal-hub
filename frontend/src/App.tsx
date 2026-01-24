@@ -1,15 +1,27 @@
-import Terminal from "./components/Terminal";
-import "./App.css";
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { SessionProvider } from './contexts/SessionContext';
+import Sidebar from './components/Sidebar';
+import SessionList from './pages/SessionList';
+import TerminalPage from './pages/TerminalPage';
+import { Toaster } from 'react-hot-toast';
+import './App.css';
 
 function App() {
-  // Determine WebSocket URL based on current protocol
-  const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-  const wsUrl = `${protocol}${window.location.host}/ws`;
-
   return (
-    <div className="App">
-      <Terminal wsUrl={wsUrl} />
-    </div>
+    <SessionProvider>
+      <Router>
+        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+          <Sidebar />
+          <main style={{ flex: 1, overflow: 'auto' }}>
+            <Routes>
+              <Route path="/" element={<SessionList />} />
+              <Route path="/session/:sessionId" element={<TerminalPage />} />
+            </Routes>
+          </main>
+        </div>
+        <Toaster position="top-right" />
+      </Router>
+    </SessionProvider>
   );
 }
 

@@ -87,9 +87,6 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      terminal.write(
-        "\r\n\x1b[32m[SYSTEM] Connected to Terminal Hub\x1b[0m\r\n",
-      );
       sendResize(ws);
     };
 

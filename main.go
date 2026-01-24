@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/iwanhae/terminal-hub/frontend/dist"
 	"github.com/iwanhae/terminal-hub/terminal"
@@ -62,13 +63,123 @@ func InitSessionManager() error {
 	return nil
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Get or create default session
-	sessionID := "default" // For now, use a single default session
-	sess, err := sessionManager.GetOrCreate(sessionID)
+// -- REST API Handlers --
+
+// handleListSessions handles GET /api/sessions
+func handleListSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessions := sessionManager.ListSessionsInfo()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(sessions); err != nil {
+		log.Printf("Error encoding sessions: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// handleCreateSession handles POST /api/sessions
+func handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req terminal.CreateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Error decoding request: %v", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Generate a unique session ID
+	sessionID := uuid.New().String()
+
+	// Create session config
+	config := terminal.SessionConfig{
+		ID:               sessionID,
+		Name:             req.Name,
+		WorkingDirectory: req.WorkingDirectory,
+		Command:          req.Command,
+		EnvVars:          req.EnvVars,
+		Shell:            req.ShellPath,
+		HistorySize:      4096,
+	}
+
+	// Create the session
+	sess, err := sessionManager.CreateSession(config)
 	if err != nil {
 		log.Printf("Error creating session: %v", err)
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare response
+	resp := terminal.CreateSessionResponse{
+		ID:       sess.ID(),
+		Metadata: sess.GetMetadata(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
+// handleDeleteSession handles DELETE /api/sessions/:id
+func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract session ID from URL path
+	// URL format: /api/sessions/:id
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	sessionID := strings.TrimSuffix(path, "/")
+
+	if sessionID == "" {
+		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Remove the session
+	if err := sessionManager.Remove(sessionID); err != nil {
+		log.Printf("Error removing session: %v", err)
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Extract session ID from URL path
+	// URL format: /ws/:sessionId
+	path := strings.TrimPrefix(r.URL.Path, "/ws/")
+	sessionID := strings.TrimSuffix(path, "/")
+
+	if sessionID == "" {
+		log.Println("Session ID is required")
+		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the session (don't auto-create)
+	sess, ok := sessionManager.Get(sessionID)
+	if !ok {
+		log.Printf("Session not found: %s", sessionID)
+		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
@@ -178,7 +289,30 @@ func main() {
 		fileServer.ServeHTTP(w, r)
 	})
 
-	http.HandleFunc("/ws", handleWebSocket)
+	// REST API routes
+	http.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		// Handle /api/sessions (GET list, POST create)
+		if r.Method == http.MethodGet {
+			handleListSessions(w, r)
+		} else if r.Method == http.MethodPost {
+			handleCreateSession(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Handle /api/sessions/:id (DELETE)
+	http.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		// Only handle DELETE operations on specific sessions
+		if r.Method == http.MethodDelete {
+			handleDeleteSession(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// WebSocket route - handle /ws/:sessionId
+	http.HandleFunc("/ws/", handleWebSocket)
 
 	log.Printf("Server starting on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))

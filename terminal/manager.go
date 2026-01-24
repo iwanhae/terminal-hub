@@ -102,3 +102,39 @@ func (sm *SessionManager) ListSessions() []string {
 	}
 	return ids
 }
+
+// ListSessionsInfo returns information about all sessions
+func (sm *SessionManager) ListSessionsInfo() []SessionInfo {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	infos := make([]SessionInfo, 0, len(sm.sessions))
+	for id, sess := range sm.sessions {
+		info := SessionInfo{
+			ID:       id,
+			Metadata: sess.GetMetadata(),
+		}
+		infos = append(infos, info)
+	}
+	return infos
+}
+
+// CreateSession creates a new session with the given configuration
+func (sm *SessionManager) CreateSession(config SessionConfig) (Session, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Check if session with this ID already exists
+	if _, ok := sm.sessions[config.ID]; ok {
+		return nil, errors.New("session already exists")
+	}
+
+	// Create new session
+	sess, err := NewTerminalSession(config)
+	if err != nil {
+		return nil, err
+	}
+
+	sm.sessions[config.ID] = sess
+	return sess, nil
+}

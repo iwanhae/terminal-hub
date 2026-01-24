@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := run
+
 # Variables
 BINARY_NAME=terminal-hub
 BUILD_DIR=build
@@ -7,12 +9,14 @@ GOFILES=$(shell find . -name '*.go' -type f)
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 
-# Default target
-.PHONY: all
-all: frontend-build build
 
-## frontend-build: Build the React frontend
-.PHONY: frontend-build
+.PHONY: run
+run: build-frontend build
+	./$(BUILD_DIR)/$(BINARY_NAME)
+
+## build-frontend: Build the React frontend
+.PHONY: build-frontend
+build-frontend:
 	@echo "Building React frontend..."
 	@cd frontend && npm run build
 	@echo "Frontend build complete"

@@ -1,11 +1,13 @@
 package terminal
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -64,6 +66,15 @@ type TerminalSession struct {
 	history HistoryProvider
 	ptySvc  PTYService
 
+	// Metadata
+	metadata        SessionMetadata
+	metadataMu      sync.RWMutex
+
+	// Terminal dimensions
+	termCols int
+	termRows int
+	termSizeMu sync.RWMutex
+
 	// Clients management
 	clients        map[WebSocketClient]bool
 	clientsMu      sync.Mutex
@@ -77,10 +88,14 @@ type TerminalSession struct {
 
 // SessionConfig holds configuration for creating a new session
 type SessionConfig struct {
-	ID          string
-	Shell       string
-	HistorySize int
-	PTYService  PTYService
+	ID               string
+	Name             string
+	Shell            string
+	WorkingDirectory string
+	Command          string
+	EnvVars          map[string]string
+	HistorySize      int
+	PTYService       PTYService
 }
 
 // NewTerminalSession creates a new terminal session
@@ -90,6 +105,10 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 		if config.Shell == "" {
 			config.Shell = "bash"
 		}
+	}
+
+	if config.Name == "" {
+		config.Name = config.ID
 	}
 
 	if config.HistorySize == 0 {
@@ -102,16 +121,27 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 	}
 
 	// Start the shell with PTY
-	ptmx, err := ptySvc.Start(config.Shell)
+	ptmx, cmd, err := ptySvc.StartWithConfig(config.Shell, config.WorkingDirectory, config.EnvVars)
 	if err != nil {
 		return nil, err
 	}
 
+	now := time.Now()
 	session := &TerminalSession{
 		id:             config.ID,
 		ptyFile:        ptmx,
+		cmd:            cmd,
 		history:        NewInMemoryHistory(config.HistorySize),
 		ptySvc:         ptySvc,
+		metadata: SessionMetadata{
+			Name:            config.Name,
+			CreatedAt:       now,
+			LastActivityAt:  now,
+			ClientCount:     0,
+			WorkingDirectory: config.WorkingDirectory,
+		},
+		termCols:       80, // Default size
+		termRows:       24,
 		clients:        make(map[WebSocketClient]bool),
 		broadcast:      make(chan []byte, 256),
 		orderedClients: make([]WebSocketClient, 0),
@@ -123,6 +153,14 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 
 	// Start broadcaster goroutine
 	go session.broadcastLoop()
+
+	// Execute initial command if provided
+	if config.Command != "" {
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Small delay to ensure PTY is ready
+			session.Write([]byte(config.Command + "\n"))
+		}()
+	}
 
 	return session, nil
 }
@@ -147,11 +185,26 @@ func (s *TerminalSession) AddClient(client WebSocketClient) error {
 	s.clients[client] = true
 	s.orderedClients = append(s.orderedClients, client)
 
+	// Update metadata
+	s.metadataMu.Lock()
+	s.metadata.ClientCount = len(s.clients)
+	s.metadata.LastActivityAt = time.Now()
+	s.metadataMu.Unlock()
+
 	// Send history to new client
 	hist := s.history.GetHistory()
 	if len(hist) > 0 {
 		client.Send(hist)
 	}
+
+	// Send current terminal size to new client
+	s.termSizeMu.RLock()
+	cols, rows := s.termCols, s.termRows
+	s.termSizeMu.RUnlock()
+
+	// Send resize message to client so they can adjust their terminal
+	sizeMsg := []byte(fmt.Sprintf("\x1b[8;%d;%dt", rows, cols))
+	client.Send(sizeMsg)
 
 	return nil
 }
@@ -174,6 +227,12 @@ func (s *TerminalSession) RemoveClient(client WebSocketClient) {
 			break
 		}
 	}
+
+	// Update metadata
+	s.metadataMu.Lock()
+	s.metadata.ClientCount = len(s.clients)
+	s.metadata.LastActivityAt = time.Now()
+	s.metadataMu.Unlock()
 }
 
 // Write writes data to the PTY
@@ -184,6 +243,11 @@ func (s *TerminalSession) Write(data []byte) (int, error) {
 	if s.closed {
 		return 0, io.ErrClosedPipe
 	}
+
+	// Update last activity time
+	s.metadataMu.Lock()
+	s.metadata.LastActivityAt = time.Now()
+	s.metadataMu.Unlock()
 
 	return s.ptyFile.Write(data)
 }
@@ -200,7 +264,13 @@ func (s *TerminalSession) Resize(client WebSocketClient, cols, rows int) error {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	// Only allow resize from the first (primary) client
+	// Store the terminal dimensions
+	s.termSizeMu.Lock()
+	s.termCols = cols
+	s.termRows = rows
+	s.termSizeMu.Unlock()
+
+	// Only allow PTY resize from the first (primary) client
 	if len(s.orderedClients) > 0 {
 		firstClient := s.orderedClients[0]
 		if client == firstClient {
@@ -208,7 +278,8 @@ func (s *TerminalSession) Resize(client WebSocketClient, cols, rows int) error {
 		}
 	}
 
-	// Ignore resize from non-primary clients
+	// For non-primary clients, just update the stored size (don't resize PTY)
+	// This allows their local xterm to be sized correctly
 	return nil
 }
 
@@ -253,6 +324,13 @@ func (s *TerminalSession) ClientCount() int {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 	return len(s.clients)
+}
+
+// GetMetadata returns the session metadata
+func (s *TerminalSession) GetMetadata() SessionMetadata {
+	s.metadataMu.RLock()
+	defer s.metadataMu.RUnlock()
+	return s.metadata
 }
 
 // readPTY continuously reads from PTY and broadcasts to clients
@@ -316,6 +394,34 @@ type DefaultPTYService struct{}
 func (d *DefaultPTYService) Start(shell string) (*os.File, error) {
 	cmd := exec.Command(shell)
 	return pty.Start(cmd)
+}
+
+// StartWithConfig starts a new shell with PTY using the provided configuration
+func (d *DefaultPTYService) StartWithConfig(shell string, workingDir string, envVars map[string]string) (*os.File, *exec.Cmd, error) {
+	cmd := exec.Command(shell)
+
+	// Set working directory if provided
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
+
+	// Set environment variables if provided
+	if len(envVars) > 0 {
+		// Start with current environment
+		cmd.Env = os.Environ()
+		// Add or override with custom env vars
+		for k, v := range envVars {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+
+	// Start with PTY
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return ptmx, cmd, nil
 }
 
 // SetSize sets the PTY window size
