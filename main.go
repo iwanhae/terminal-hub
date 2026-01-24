@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/iwanhae/terminal-hub/frontend/dist"
 	"github.com/iwanhae/terminal-hub/terminal"
 )
 
@@ -150,9 +153,31 @@ func main() {
 		log.Fatal("Failed to initialize session manager:", err)
 	}
 
+	// Create a filesystem from the embedded dist files
+	embeddedFS, err := fs.Sub(dist.StaticFS, ".")
+	if err != nil {
+		log.Fatal("Failed to create sub filesystem:", err)
+	}
+
+	// Create a file server for the embedded files
+	fileServer := http.FileServer(http.FS(embeddedFS))
+
+	// Serve the embedded React frontend with SPA fallback
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "index.html")
+		// Try to serve the requested file
+		path := r.URL.Path
+
+		// Check if the file exists in the embedded filesystem
+		if _, err := embeddedFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// If not found, serve index.html for SPA routing
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
 	})
+
 	http.HandleFunc("/ws", handleWebSocket)
 
 	log.Printf("Server starting on %s", *addr)

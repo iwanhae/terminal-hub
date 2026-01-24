@@ -9,7 +9,13 @@ LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 
 # Default target
 .PHONY: all
-all: build
+all: frontend-build build
+
+## frontend-build: Build the React frontend
+.PHONY: frontend-build
+	@echo "Building React frontend..."
+	@cd frontend && npm run build
+	@echo "Frontend build complete"
 
 ## build: Build the application
 .PHONY: build
