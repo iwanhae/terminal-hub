@@ -431,16 +431,24 @@ func (d *DefaultPTYService) StartWithConfig(shell string, workingDir string, env
 	cmd.Env = os.Environ()
 
 	// Set default TERM to xterm-256color for proper color support
-	// Users can override this by passing their own TERM in envVars
+	// Set COLORTERM to truecolor to advertise 24-bit color support
+	// Users can override these by passing their own values in envVars
 	termSet := false
+	colortermSet := false
 	for k, v := range envVars {
 		cmd.Env = append(cmd.Env, k+"="+v)
 		if k == "TERM" {
 			termSet = true
 		}
+		if k == "COLORTERM" {
+			colortermSet = true
+		}
 	}
 	if !termSet {
 		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	}
+	if !colortermSet {
+		cmd.Env = append(cmd.Env, "COLORTERM=truecolor")
 	}
 
 	// Start with PTY
