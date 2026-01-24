@@ -427,14 +427,20 @@ func (d *DefaultPTYService) StartWithConfig(shell string, workingDir string, env
 		cmd.Dir = workingDir
 	}
 
-	// Set environment variables if provided
-	if len(envVars) > 0 {
-		// Start with current environment
-		cmd.Env = os.Environ()
-		// Add or override with custom env vars
-		for k, v := range envVars {
-			cmd.Env = append(cmd.Env, k+"="+v)
+	// Start with current environment
+	cmd.Env = os.Environ()
+
+	// Set default TERM to xterm-256color for proper color support
+	// Users can override this by passing their own TERM in envVars
+	termSet := false
+	for k, v := range envVars {
+		cmd.Env = append(cmd.Env, k+"="+v)
+		if k == "TERM" {
+			termSet = true
 		}
+	}
+	if !termSet {
+		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
 	}
 
 	// Start with PTY
