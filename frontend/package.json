@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run lint && tsc -b && vite build && git restore dist",
+    "build": "npm run lint && npm run build-ci && git restore dist",
+    "build-ci": "tsc -b && vite build",
     "lint": "eslint . --fix",
     "preview": "vite preview"
   },

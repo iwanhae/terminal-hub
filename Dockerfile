@@ -1,0 +1,77 @@
+# Multi-stage Dockerfile for Terminal Hub
+# Stage 1: Build frontend
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+
+# Install frontend dependencies
+RUN npm ci
+
+# Copy frontend source
+COPY frontend/ ./
+
+# Build frontend
+RUN npm run build-ci
+
+# Stage 2: Build Go backend
+FROM golang:1.25.5 AS backend-builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Copy built frontend from previous stage
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Build the Go binary
+ENV CGO_ENABLED=0
+RUN go build -o terminal-hub .
+
+# Stage 3: Final runtime image
+FROM ubuntu:24.04
+
+RUN apt-get update && \
+    apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from backend-builder
+COPY --from=backend-builder /app/terminal-hub /usr/local/bin/terminal-hub
+
+# Create a non-root user for running the application
+# Variables
+ARG USERNAME=ubuntu
+
+# Create the user
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+# Prepare dev environment
+
+# Go
+RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
+    curl -sSL "https://go.dev/dl/go1.25.6.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+
+USER $USERNAME
+ENV HOME=/home/$USERNAME
+WORKDIR $HOME
+
+# Node
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+RUN bash -c "source $HOME/.nvm/nvm.sh && nvm install 24"
+
+# Python
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
+
+# AI tools
+RUN go install github.com/charmbracelet/crush@latest
+RUN curl -fsSL https://claude.ai/install.sh | bash
+EXPOSE 8081
+
+ENTRYPOINT ["terminal-hub"]
+CMD ["-addr", ":8081"]

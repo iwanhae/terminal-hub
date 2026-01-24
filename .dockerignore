@@ -1,0 +1,45 @@
+# Build artifacts
+build/
+dist/
+coverage.out
+coverage.html
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Documentation
+README.md
+CLAUDE.md
+LICENSE
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Node modules (will be installed in container)
+frontend/node_modules/
+
+# Test files
+*_test.go
+test/
+testing/
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
+
+# CI/CD
+.gitlab-ci.yml
+.travis.yml
+appveyor.yml
