@@ -32,7 +32,7 @@ ENV CGO_ENABLED=0
 RUN go build -o terminal-hub .
 
 # Stage 3: Final runtime image
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS base
 
 RUN apt-get update && \
     apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip && \
@@ -72,12 +72,23 @@ RUN curl -fsSL https://opencode.ai/install | bash
 
 # Backup HOME directory contents for volume initialization
 RUN sudo tar -czf /tmp/home-backup.tar.gz -C $HOME .
+RUN sudo bash -c "rm -rf ${HOME} && mkdir ${HOME} && sudo chown $USERNAME:$USERNAME ${HOME}"
 
 # Copy the binary from backend-builder
 COPY --from=backend-builder /app/terminal-hub /usr/local/bin/terminal-hub
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+FROM scratch
+
+COPY --from=base / /
+
+ARG USERNAME=ubuntu
+USER $USERNAME
+ENV HOME=/home/$USERNAME
+WORKDIR $HOME
+ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
 
 EXPOSE 8081
 

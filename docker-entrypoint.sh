@@ -8,7 +8,8 @@ MARKER_FILE="${HOME}/.terminal-hub-initialized"
 if [ ! -f "${MARKER_FILE}" ]; then
     echo "Initializing HOME directory from backup..."
     if [ -f "${BACKUP_FILE}" ]; then
-        tar -xzf "${BACKUP_FILE}" -C "${HOME}"
+        sudo tar -xzf "${BACKUP_FILE}" -C "${HOME}"
+        sudo chown -R $(id -u):$(id -g) "${HOME}"
         echo "HOME directory restored from backup."
     else
         echo "Warning: No backup file found at ${BACKUP_FILE}"
