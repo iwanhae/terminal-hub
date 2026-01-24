@@ -344,6 +344,13 @@ func (s *TerminalSession) GetMetadata() SessionMetadata {
 	return s.metadata
 }
 
+// updateName updates the session name (called by SessionManager via type assertion)
+func (s *TerminalSession) updateName(name string) {
+	s.metadataMu.Lock()
+	defer s.metadataMu.Unlock()
+	s.metadata.Name = name
+}
+
 // readPTY continuously reads from PTY and broadcasts to clients
 func (s *TerminalSession) readPTY() {
 	buf := make([]byte, 1024)

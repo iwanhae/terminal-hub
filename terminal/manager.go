@@ -138,3 +138,22 @@ func (sm *SessionManager) CreateSession(config SessionConfig) (Session, error) {
 	sm.sessions[config.ID] = sess
 	return sess, nil
 }
+
+// UpdateSessionName updates the name of a session
+func (sm *SessionManager) UpdateSessionName(sessionID string, name string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sess, ok := sm.sessions[sessionID]
+	if !ok {
+		return errors.New("session not found")
+	}
+
+	// Type assert to *TerminalSession to access updateName method
+	if terminalSess, ok := sess.(*TerminalSession); ok {
+		terminalSess.updateName(name)
+		return nil
+	}
+
+	return errors.New("session is not a TerminalSession")
+}

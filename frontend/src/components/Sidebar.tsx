@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
 import CreateSessionDialog from "./CreateSessionDialog";
+import RenameSessionDialog from "./RenameSessionDialog";
 
 export default function Sidebar() {
   const { sessions } = useSessions();
   const navigate = useNavigate();
   const location = useLocation();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   // Extract current session ID from location
@@ -113,32 +115,65 @@ export default function Sidebar() {
             : filteredSessions.map((session) => {
                 const isActive = session.id === currentSessionId;
                 return (
-                  <button
+                  <div
                     key={session.id}
-                    onClick={() => handleNavigate(session.id)}
-                    className={`w-full flex items-center gap-3 p-2 rounded-md text-left transition-all group relative ${
+                    className={`flex items-center gap-1 p-2 rounded-md transition-all group ${
                       isActive
-                        ? "bg-zinc-800 text-zinc-100 shadow-sm ring-1 ring-zinc-700"
-                        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                        ? "bg-zinc-800 shadow-sm ring-1 ring-zinc-700"
+                        : "hover:bg-zinc-800/50"
                     }`}
-                    title={session.metadata.name}
                   >
-                    <div
-                      className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" : "bg-zinc-600"}`}
-                    />
+                    <button
+                      onClick={() => handleNavigate(session.id)}
+                      className={`flex-1 flex items-center gap-3 text-left transition-all ${
+                        isActive
+                          ? "text-zinc-100"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                      title={session.metadata.name}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" : "bg-zinc-600"}`}
+                      />
+
+                      {!collapsed && (
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {session.metadata.name}
+                          </div>
+                        </div>
+                      )}
+
+                      {isActive && !collapsed && (
+                        <div className="w-1 h-4 bg-indigo-500 rounded-full" />
+                      )}
+                    </button>
 
                     {!collapsed && (
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate text-sm font-medium">
-                          {session.metadata.name}
-                        </div>
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenameSessionId(session.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-all"
+                        title="Rename session"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                          />
+                        </svg>
+                      </button>
                     )}
-
-                    {isActive && !collapsed && (
-                      <div className="w-1 h-4 bg-indigo-500 rounded-full" />
-                    )}
-                  </button>
+                  </div>
                 );
               })}
         </div>
@@ -160,6 +195,16 @@ export default function Sidebar() {
 
       {showCreateDialog && (
         <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
+      )}
+
+      {renameSessionId && (
+        <RenameSessionDialog
+          sessionId={renameSessionId}
+          currentName={
+            sessions.find((s) => s.id === renameSessionId)?.metadata.name || ""
+          }
+          onClose={() => setRenameSessionId(null)}
+        />
       )}
     </>
   );

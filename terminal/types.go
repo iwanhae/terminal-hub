@@ -63,6 +63,11 @@ type CreateSessionRequest struct {
 	ShellPath       string            `json:"shell_path,omitempty"`        // Optional: Custom shell path
 }
 
+// UpdateSessionRequest represents a request to update a session
+type UpdateSessionRequest struct {
+	Name string `json:"name"` // Required: New session name
+}
+
 // SessionInfo represents information about a session for API responses
 type SessionInfo struct {
 	ID              string           `json:"id"`

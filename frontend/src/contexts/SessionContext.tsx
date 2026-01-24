@@ -16,6 +16,7 @@ interface SessionContextType {
     envVars?: Record<string, string>,
   ) => Promise<string>;
   deleteSession: (sessionId: string) => Promise<void>;
+  updateSessionName: (sessionId: string, newName: string) => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -83,6 +84,19 @@ export function SessionProvider({
     }
   };
 
+  const updateSessionName = async (sessionId: string, newName: string) => {
+    try {
+      await api.updateSessionName(sessionId, { name: newName });
+      toast.success("Session renamed successfully");
+      await refreshSessions();
+    } catch (error_) {
+      const message =
+        error_ instanceof Error ? error_.message : "Failed to rename session";
+      toast.error(message);
+      throw error_;
+    }
+  };
+
   // Auto-refresh every 5 seconds
   useEffect(() => {
     void refreshSessions();
@@ -99,6 +113,7 @@ export function SessionProvider({
         refreshSessions,
         createSession,
         deleteSession,
+        updateSessionName,
       }}
     >
       {children}

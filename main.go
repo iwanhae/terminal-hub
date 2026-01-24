@@ -163,6 +163,46 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleUpdateSession handles PUT /api/sessions/:id
+func handleUpdateSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract session ID from URL path
+	// URL format: /api/sessions/:id
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	sessionID := strings.TrimSuffix(path, "/")
+
+	if sessionID == "" {
+		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req terminal.UpdateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Error decoding request: %v", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Update the session
+	if err := sessionManager.UpdateSessionName(sessionID, req.Name); err != nil {
+		log.Printf("Error updating session: %v", err)
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL path
 	// URL format: /ws/:sessionId
@@ -311,12 +351,15 @@ func main() {
 		}
 	})
 
-	// Handle /api/sessions/:id (DELETE)
+	// Handle /api/sessions/:id (DELETE, PUT)
 	http.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
-		// Only handle DELETE operations on specific sessions
-		if r.Method == http.MethodDelete {
+		// Handle operations on specific sessions
+		switch r.Method {
+		case http.MethodDelete:
 			handleDeleteSession(w, r)
-		} else {
+		case http.MethodPut:
+			handleUpdateSession(w, r)
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})

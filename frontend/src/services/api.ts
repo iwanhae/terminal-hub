@@ -27,6 +27,10 @@ export interface CreateSessionResponse {
   metadata: SessionMetadata;
 }
 
+export interface UpdateSessionRequest {
+  name: string;
+}
+
 const API_BASE_URL = "/api";
 
 // API service functions
@@ -69,6 +73,25 @@ export const api = {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to delete session: ${errorText}`);
+    }
+  },
+
+  // Update a session name
+  async updateSessionName(
+    sessionId: string,
+    request: UpdateSessionRequest,
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to update session: ${errorText}`);
     }
   },
 };
