@@ -38,9 +38,6 @@ RUN apt-get update && \
     apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from backend-builder
-COPY --from=backend-builder /app/terminal-hub /usr/local/bin/terminal-hub
-
 # Create a non-root user for running the application
 # Variables
 ARG USERNAME=ubuntu
@@ -69,9 +66,22 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
 
 # AI tools
-RUN go install github.com/charmbracelet/crush@latest
+RUN bash -c "source $HOME/.nvm/nvm.sh && npm install -g @charmland/crush"
 RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN curl -fsSL https://opencode.ai/install | bash
+
+# Backup HOME directory contents for volume initialization
+RUN sudo tar -czf /tmp/home-backup.tar.gz -C $HOME .
+
+# Copy the binary from backend-builder
+COPY --from=backend-builder /app/terminal-hub /usr/local/bin/terminal-hub
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 8081
 
-ENTRYPOINT ["terminal-hub"]
+VOLUME [ ${HOME} ]
+
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["-addr", ":8081"]
