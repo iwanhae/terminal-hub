@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# Environment Variables:
+#   TERMINAL_HUB_USERNAME - Username for HTTP Basic Authentication (optional)
+#   TERMINAL_HUB_PASSWORD - Password for HTTP Basic Authentication (optional)
+#
+# If both TERMINAL_HUB_USERNAME and TERMINAL_HUB_PASSWORD are set,
+# HTTP Basic Authentication will be enabled. Otherwise, the application
+# runs in open mode with no authentication.
+
 BACKUP_FILE="/tmp/home-backup.tar.gz"
 MARKER_FILE="${HOME}/.terminal-hub-initialized"
 USER="ubuntu"

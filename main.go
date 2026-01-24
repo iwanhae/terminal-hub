@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
@@ -55,6 +56,32 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all for demo
 	},
+}
+
+// basicAuthMiddleware wraps an http.HandlerFunc with HTTP Basic Authentication
+// If username or password is empty, authentication is disabled (for backwards compatibility)
+func basicAuthMiddleware(next http.HandlerFunc, username, password string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// If auth is not configured, skip authentication
+		if username == "" || password == "" {
+			next(w, r)
+			return
+		}
+
+		// Extract Basic Auth credentials
+		user, pass, ok := r.BasicAuth()
+
+		// Validate credentials
+		if !ok || user != username || pass != password {
+			// Return 401 Unauthorized with WWW-Authenticate header
+			w.Header().Set("WWW-Authenticate", `Basic realm="Terminal Hub"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Credentials valid, proceed to next handler
+		next(w, r)
+	}
 }
 
 // InitSessionManager initializes the global session manager
@@ -309,6 +336,17 @@ func main() {
 	var addr = flag.String("addr", ":8081", "http service address")
 	flag.Parse()
 
+	// Load authentication credentials from environment
+	username := os.Getenv("TERMINAL_HUB_USERNAME")
+	password := os.Getenv("TERMINAL_HUB_PASSWORD")
+	authEnabled := username != "" && password != ""
+
+	if authEnabled {
+		log.Printf("Authentication enabled for user: %s", username)
+	} else {
+		log.Printf("WARNING: No authentication configured (TERMINAL_HUB_USERNAME and TERMINAL_HUB_PASSWORD not set). Running in open mode.")
+	}
+
 	if err := InitSessionManager(); err != nil {
 		log.Fatal("Failed to initialize session manager:", err)
 	}
@@ -323,7 +361,7 @@ func main() {
 	fileServer := http.FileServer(http.FS(embeddedFS))
 
 	// Serve the embedded React frontend with SPA fallback
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Try to serve the requested file
 		path := r.URL.Path
 
@@ -336,10 +374,10 @@ func main() {
 		// If not found, serve index.html for SPA routing
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
-	})
+	}, username, password))
 
 	// REST API routes
-	http.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/sessions", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Handle /api/sessions (GET list, POST create)
 		switch r.Method {
 		case http.MethodGet:
@@ -349,10 +387,10 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	}, username, password))
 
 	// Handle /api/sessions/:id (DELETE, PUT)
-	http.HandleFunc("/api/sessions/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/sessions/", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Handle operations on specific sessions
 		switch r.Method {
 		case http.MethodDelete:
@@ -362,10 +400,10 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	}, username, password))
 
 	// WebSocket route - handle /ws/:sessionId
-	http.HandleFunc("/ws/", handleWebSocket)
+	http.HandleFunc("/ws/", basicAuthMiddleware(handleWebSocket, username, password))
 
 	log.Printf("Server starting on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
