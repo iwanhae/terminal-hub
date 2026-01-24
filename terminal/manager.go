@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"sort"
 	"sync"
 )
 
@@ -103,7 +104,7 @@ func (sm *SessionManager) ListSessions() []string {
 	return ids
 }
 
-// ListSessionsInfo returns information about all sessions
+// ListSessionsInfo returns information about all sessions, sorted by newest first
 func (sm *SessionManager) ListSessionsInfo() []SessionInfo {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -116,6 +117,12 @@ func (sm *SessionManager) ListSessionsInfo() []SessionInfo {
 		}
 		infos = append(infos, info)
 	}
+
+	// Sort by creation time, newest first
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Metadata.CreatedAt.After(infos[j].Metadata.CreatedAt)
+	})
+
 	return infos
 }
 
