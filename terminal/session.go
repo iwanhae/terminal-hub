@@ -157,7 +157,9 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 	if config.Command != "" {
 		go func() {
 			time.Sleep(100 * time.Millisecond) // Small delay to ensure PTY is ready
-			session.Write([]byte(config.Command + "\n"))
+			if _, err := session.Write([]byte(config.Command + "\n")); err != nil {
+				log.Printf("Error writing initial command: %v", err)
+			}
 		}()
 	}
 
@@ -193,7 +195,9 @@ func (s *TerminalSession) AddClient(client WebSocketClient) error {
 	// Send history to new client
 	hist := s.history.GetHistory()
 	if len(hist) > 0 {
-		client.Send(hist)
+		if err := client.Send(hist); err != nil {
+			log.Printf("Error sending history to client: %v", err)
+		}
 	}
 
 	return nil
@@ -211,10 +215,7 @@ func (s *TerminalSession) RemoveClient(client WebSocketClient) {
 	delete(s.clients, client)
 
 	// Remove from ordered clients
-	isPrimary := false
-	if len(s.orderedClients) > 0 && s.orderedClients[0] == client {
-		isPrimary = true
-	}
+	isPrimary := len(s.orderedClients) > 0 && s.orderedClients[0] == client
 
 	for i, c := range s.orderedClients {
 		if c == client {
@@ -234,7 +235,9 @@ func (s *TerminalSession) RemoveClient(client WebSocketClient) {
 		s.termSizeMu.RLock()
 		cols, rows := s.termCols, s.termRows
 		s.termSizeMu.RUnlock()
-		s.ptySvc.SetSize(s.ptyFile, cols, rows)
+		if err := s.ptySvc.SetSize(s.ptyFile, cols, rows); err != nil {
+			log.Printf("Error resizing PTY after primary client change: %v", err)
+		}
 	}
 }
 
@@ -278,7 +281,9 @@ func (s *TerminalSession) Resize(client WebSocketClient, cols, rows int) error {
 		// Force redraw by toggling size slightly if it's the same
 		// This ensures SIGWINCH is sent even if the terminal size hasn't changed
 		// which often happens on page refresh.
-		s.ptySvc.SetSize(s.ptyFile, cols, rows+1)
+		if err := s.ptySvc.SetSize(s.ptyFile, cols, rows+1); err != nil {
+			log.Printf("Error forcing PTY resize: %v", err)
+		}
 		return s.ptySvc.SetSize(s.ptyFile, cols, rows)
 	}
 
@@ -299,7 +304,9 @@ func (s *TerminalSession) Close() error {
 	// Close all clients
 	s.clientsMu.Lock()
 	for client := range s.clients {
-		client.Close()
+		if err := client.Close(); err != nil {
+			log.Printf("Error closing client: %v", err)
+		}
 		delete(s.clients, client)
 	}
 	s.clientsMu.Unlock()
@@ -313,7 +320,9 @@ func (s *TerminalSession) Close() error {
 
 	// Kill the shell process
 	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
+		if err := s.cmd.Process.Kill(); err != nil {
+			log.Printf("Error killing shell process: %v", err)
+		}
 	}
 
 	close(s.broadcast)
@@ -361,7 +370,9 @@ func (s *TerminalSession) readPTY() {
 		copy(data, buf[:n])
 
 		// Save to history
-		s.history.Write(data)
+		if _, err := s.history.Write(data); err != nil {
+			log.Printf("Error writing to history: %v", err)
+		}
 
 		// Broadcast to all clients
 		s.broadcast <- data
@@ -381,7 +392,9 @@ func (s *TerminalSession) broadcastLoop() {
 		for client := range s.clients {
 			if err := client.Send(data); err != nil {
 				// If send fails, close and remove the client
-				client.Close()
+				if closeErr := client.Close(); closeErr != nil {
+					log.Printf("Error closing client after send failure: %v", closeErr)
+				}
 				delete(s.clients, client)
 			}
 		}

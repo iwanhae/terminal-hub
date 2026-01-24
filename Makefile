@@ -9,11 +9,6 @@ GOFILES=$(shell find . -name '*.go' -type f)
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 
-
-.PHONY: run
-run: build-frontend build
-	./$(BUILD_DIR)/$(BINARY_NAME)
-
 ## run: Run the application
 .PHONY: run
 run: build

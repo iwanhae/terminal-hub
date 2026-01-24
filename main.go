@@ -198,14 +198,18 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Register client with session
 	if err := sess.AddClient(wsClient); err != nil {
 		log.Printf("Error adding client: %v", err)
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Printf("Error closing connection: %v", closeErr)
+		}
 		return
 	}
 
 	// Handle cleanup on close
 	defer func() {
 		sess.RemoveClient(wsClient)
-		wsClient.Close()
+		if closeErr := wsClient.Close(); closeErr != nil {
+			log.Printf("Error closing WebSocket client: %v", closeErr)
+		}
 		log.Printf("Client disconnected from session %s", sessionID)
 	}()
 
@@ -214,14 +218,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		for {
 			message, ok := <-wsClient.send
 			if !ok {
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if writeErr := conn.WriteMessage(websocket.CloseMessage, []byte{}); writeErr != nil {
+					log.Printf("Error writing close message: %v", writeErr)
+				}
 				return
 			}
 			w, err := conn.NextWriter(websocket.BinaryMessage)
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				log.Printf("Error writing to WebSocket: %v", err)
+				return
+			}
 			if err := w.Close(); err != nil {
 				return
 			}
@@ -292,11 +301,12 @@ func main() {
 	// REST API routes
 	http.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		// Handle /api/sessions (GET list, POST create)
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			handleListSessions(w, r)
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			handleCreateSession(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})

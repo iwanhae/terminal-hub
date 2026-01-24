@@ -117,7 +117,8 @@ var _ = Describe("InMemoryHistory", func() {
 		It("should retrieve written history", func() {
 			history := NewInMemoryHistory(100)
 			data := []byte("test data")
-			history.Write(data)
+			_, err := history.Write(data)
+			Expect(err).ToNot(HaveOccurred())
 
 			retrieved := history.GetHistory()
 			Expect(retrieved).To(Equal(data))
@@ -127,8 +128,10 @@ var _ = Describe("InMemoryHistory", func() {
 			history := NewInMemoryHistory(10)
 
 			// Write more than the size limit
-			history.Write([]byte("0123456789")) // 10 bytes
-			history.Write([]byte("ABCDE"))      // 5 more bytes
+			_, err := history.Write([]byte("0123456789")) // 10 bytes
+			Expect(err).ToNot(HaveOccurred())
+			_, err = history.Write([]byte("ABCDE")) // 5 more bytes
+			Expect(err).ToNot(HaveOccurred())
 
 			retrieved := history.GetHistory()
 			// Should keep only the last 10 bytes
@@ -139,7 +142,8 @@ var _ = Describe("InMemoryHistory", func() {
 		It("should handle single write larger than buffer size", func() {
 			history := NewInMemoryHistory(5)
 
-			history.Write([]byte("0123456789")) // 10 bytes, larger than buffer
+			_, err := history.Write([]byte("0123456789")) // 10 bytes, larger than buffer
+			Expect(err).ToNot(HaveOccurred())
 
 			retrieved := history.GetHistory()
 			// Should keep only the last 5 bytes
@@ -203,13 +207,15 @@ var _ = Describe("MockWebSocketClient", func() {
 		})
 
 		It("should receive data from channel", func() {
-			client.Send([]byte("test"))
+			err := client.Send([]byte("test"))
+			Expect(err).ToNot(HaveOccurred())
 			received := client.Receive(100 * time.Millisecond)
 			Expect(received).To(Equal([]byte("test")))
 		})
 
 		It("should fail when closed", func() {
-			client.Close()
+			closeErr := client.Close()
+			Expect(closeErr).ToNot(HaveOccurred())
 			err := client.Send([]byte("test"))
 			Expect(err).To(HaveOccurred())
 		})
@@ -218,12 +224,14 @@ var _ = Describe("MockWebSocketClient", func() {
 	Context("When closing", func() {
 		It("should mark client as closed", func() {
 			Expect(client.IsClosed()).To(BeFalse())
-			client.Close()
+			err := client.Close()
+			Expect(err).ToNot(HaveOccurred())
 			Expect(client.IsClosed()).To(BeTrue())
 		})
 
 		It("should handle multiple close calls gracefully", func() {
-			client.Close()
+			closeErr := client.Close()
+			Expect(closeErr).ToNot(HaveOccurred())
 			err := client.Close()
 			Expect(err).ToNot(HaveOccurred())
 		})

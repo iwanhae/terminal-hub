@@ -20,11 +20,12 @@ export default function SessionGrid() {
   >();
 
   // Sort sessions by creation time (newest first)
-  const sortedSessions = [...sessions].toSorted(
+  // eslint-disable-next-line unicorn/no-array-sort -- spread operator creates new array
+  const sortedSessions = [...sessions].sort(
     (a, b) =>
       new Date(b.metadata.created_at).getTime() -
       new Date(a.metadata.created_at).getTime(),
-  );
+  ) satisfies SessionInfo[];
 
   const handleDelete = async (
     e: React.MouseEvent,
@@ -34,6 +35,15 @@ export default function SessionGrid() {
     e.stopPropagation();
     if (confirm(`Are you sure you want to delete session "${sessionName}"?`)) {
       await deleteSession(sessionId);
+    }
+  };
+
+  const handleNavigate = (sessionId: string) => {
+    const result = navigate(`/session/${sessionId}`);
+    if (result instanceof Promise) {
+      result.catch((error: Error) => {
+        console.error(error);
+      });
     }
   };
 
@@ -100,7 +110,7 @@ export default function SessionGrid() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={(e) => {
-                        void handleDuplicate(e, session);
+                        handleDuplicate(e, session);
                       }}
                       className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-indigo-400 transition-colors"
                       title="Duplicate Session"
@@ -128,9 +138,13 @@ export default function SessionGrid() {
                       </svg>
                     </button>
                     <button
-                      onClick={(e) =>
-                        handleDelete(e, session.id, session.metadata.name)
-                      }
+                      onClick={(e) => {
+                        handleDelete(
+                          e,
+                          session.id,
+                          session.metadata.name,
+                        ).catch(console.error);
+                      }}
                       className="p-1 hover:bg-red-900/30 rounded text-zinc-500 hover:text-red-400 transition-colors"
                       title="Delete Session"
                     >
@@ -150,9 +164,7 @@ export default function SessionGrid() {
                       </svg>
                     </button>
                     <button
-                      onClick={() => {
-                        void navigate(`/session/${session.id}`);
-                      }}
+                      onClick={() => handleNavigate(session.id)}
                       className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-indigo-400 transition-colors"
                       title="Maximize"
                     >

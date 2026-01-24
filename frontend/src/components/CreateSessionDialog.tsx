@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
 
 interface CreateSessionDialogProps {
@@ -16,6 +17,7 @@ export default function CreateSessionDialog({
   initialValues,
 }: CreateSessionDialogProps) {
   const { createSession } = useSessions();
+  const navigate = useNavigate();
   const [name, setName] = useState(initialValues?.name ?? "");
   const [workingDirectory, setWorkingDirectory] = useState(
     initialValues?.workingDirectory ?? "",
@@ -31,8 +33,7 @@ export default function CreateSessionDialog({
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     if (!name.trim()) return;
 
     setLoading(true);
@@ -55,14 +56,28 @@ export default function CreateSessionDialog({
         Object.keys(envVarsMap).length > 0 ? envVarsMap : undefined,
       );
 
-      // Navigate to the new session
-      window.location.href = `/session/${sessionId}`;
+      // Navigate to the new session using React Router
+      const result = navigate(`/session/${sessionId}`);
+      if (result instanceof Promise) {
+        result.catch((error: Error) => {
+          console.error("Navigation error:", error);
+        });
+      }
     } catch (error) {
       console.error("Failed to create session:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    void handleSubmit().catch((error: Error) => {
+      console.error("Failed to submit form:", error);
+    });
+  };
+
+  const buttonText = initialValues ? "Duplicate" : "Create Session";
 
   return (
     <div
@@ -76,14 +91,16 @@ export default function CreateSessionDialog({
     >
       <div
         className="bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
-        role="dialog"
+        role="presentation"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
             <span className="text-indigo-400">⚡</span>{" "}
             {initialValues ? "Duplicate Session" : "Create New Session"}
           </h2>
-          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+          <form onSubmit={handleFormSubmit} className="space-y-4">
             <div>
               <label
                 htmlFor="session-name"
@@ -167,14 +184,11 @@ export default function CreateSessionDialog({
               </button>
               <button
                 type="submit"
+                onClick={(e) => e.stopPropagation()}
                 disabled={loading || !name.trim()}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading
-                  ? "Creating..."
-                  : initialValues
-                    ? "Duplicate"
-                    : "Create Session"}
+                {loading ? "Creating..." : buttonText}
               </button>
             </div>
           </form>

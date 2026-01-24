@@ -63,6 +63,24 @@ export default function Sidebar() {
     session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  const handleNavigate = (sessionId: string) => {
+    const result = navigate(`/session/${sessionId}`);
+    if (result instanceof Promise) {
+      result.catch((error: Error) => {
+        console.error(error);
+      });
+    }
+  };
+
+  const handleNavigateToDashboard = () => {
+    const result = navigate("/");
+    if (result instanceof Promise) {
+      result.catch((error: Error) => {
+        console.error(error);
+      });
+    }
+  };
+
   return (
     <>
       <div
@@ -130,9 +148,7 @@ export default function Sidebar() {
                 return (
                   <button
                     key={session.id}
-                    onClick={() => {
-                      void navigate(`/session/${session.id}`);
-                    }}
+                    onClick={() => handleNavigate(session.id)}
                     className={`w-full flex items-center gap-3 p-2 rounded-md text-left transition-all group relative ${
                       isActive
                         ? "bg-zinc-800 text-zinc-100 shadow-sm ring-1 ring-zinc-700"
@@ -156,7 +172,7 @@ export default function Sidebar() {
                     {!collapsed && (
                       <button
                         onClick={(e) => {
-                          void handleDuplicate(e, session);
+                          handleDuplicate(e, session);
                         }}
                         className={`p-1 hover:bg-zinc-700 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? "text-zinc-400" : "text-zinc-500"}`}
                         title="Duplicate Session"
@@ -196,9 +212,7 @@ export default function Sidebar() {
         {/* Footer */}
         <div className="p-3 border-t border-zinc-800">
           <button
-            onClick={() => {
-              void navigate("/");
-            }}}
+            onClick={handleNavigateToDashboard}
             className={`w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${location.pathname === "/" ? "bg-zinc-800 text-zinc-100" : ""}`}
             title="Dashboard"
           >

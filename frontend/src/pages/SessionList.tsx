@@ -18,17 +18,17 @@ export default function SessionList() {
     <div style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto" }}>
       <h1>Terminal Hub - Sessions</h1>
 
-      {error && error.trim() !== "" && (
+      {error != null && error.trim() !== "" && (
         <div style={{ color: "red", marginBottom: "20px" }}>{error}</div>
       )}
 
-      {loading ? (
-        <p>Loading sessions...</p>
-      ) : sessions.length === 0 ? (
+      {loading && <p>Loading sessions...</p>}
+      {!loading && sessions.length === 0 && (
         <div>
           <p>No sessions found. Create your first session to get started!</p>
         </div>
-      ) : (
+      )}
+      {!loading && sessions.length > 0 && (
         <div
           style={{
             display: "grid",
@@ -60,7 +60,7 @@ export default function SessionList() {
                 <strong>Last Activity:</strong>{" "}
                 {new Date(session.metadata.last_activity_at).toLocaleString()}
               </p>
-              {session.metadata.working_directory &&
+              {session.metadata.working_directory != null &&
                 session.metadata.working_directory.trim() !== "" && (
                   <p>
                     <strong>Working Directory:</strong>{" "}
@@ -82,7 +82,9 @@ export default function SessionList() {
                 </Link>
                 <button
                   onClick={() => {
-                    void handleDelete(session.id, session.metadata.name);
+                    handleDelete(session.id, session.metadata.name).catch(
+                      console.error,
+                    );
                   }}
                   style={{
                     padding: "8px 16px",

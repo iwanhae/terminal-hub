@@ -5,9 +5,14 @@ export default function TerminalPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
 
-  if (!sessionId || sessionId.trim() === "") {
+  if (typeof sessionId !== "string" || sessionId.trim() === "") {
     // Redirect to home if no session ID
-    void navigate("/");
+    const result = navigate("/");
+    if (result instanceof Promise) {
+      result.catch((error: Error) => {
+        console.error(error);
+      });
+    }
     return null;
   }
 
