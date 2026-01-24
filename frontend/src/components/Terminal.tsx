@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
+import { useEffect, useRef } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
   wsUrl: string;
@@ -18,26 +18,26 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
 
     // Theme configuration
     const theme = {
-      background: '#000000',
-      foreground: '#ffffff',
-      cursor: '#ffffff',
-      selection: 'rgba(255, 255, 255, 0.3)',
-      black: '#000000',
-      red: '#e06c75',
-      green: '#98c379',
-      yellow: '#d19a66',
-      blue: '#61afef',
-      magenta: '#c678dd',
-      cyan: '#56b6c2',
-      white: '#abb2bf',
-      brightBlack: '#5c6370',
-      brightRed: '#e06c75',
-      brightGreen: '#98c379',
-      brightYellow: '#d19a66',
-      brightBlue: '#61afef',
-      brightMagenta: '#c678dd',
-      brightCyan: '#56b6c2',
-      brightWhite: '#ffffff'
+      background: "#000000",
+      foreground: "#ffffff",
+      cursor: "#ffffff",
+      selection: "rgba(255, 255, 255, 0.3)",
+      black: "#000000",
+      red: "#e06c75",
+      green: "#98c379",
+      yellow: "#d19a66",
+      blue: "#61afef",
+      magenta: "#c678dd",
+      cyan: "#56b6c2",
+      white: "#abb2bf",
+      brightBlack: "#5c6370",
+      brightRed: "#e06c75",
+      brightGreen: "#98c379",
+      brightYellow: "#d19a66",
+      brightBlue: "#61afef",
+      brightMagenta: "#c678dd",
+      brightCyan: "#56b6c2",
+      brightWhite: "#ffffff",
     };
 
     // Initialize Terminal
@@ -46,9 +46,9 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
       macOptionIsMeta: true,
       scrollback: 1000,
       fontSize: 14,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
       theme: theme,
-      allowProposedApi: true
+      allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
@@ -64,11 +64,13 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
         const dims = fitAddon.proposeDimensions();
         if (dims) {
           terminal.resize(dims.cols, dims.rows);
-          ws.send(JSON.stringify({
-            type: 'resize',
-            cols: dims.cols,
-            rows: dims.rows
-          }));
+          ws.send(
+            JSON.stringify({
+              type: "resize",
+              cols: dims.cols,
+              rows: dims.rows,
+            }),
+          );
         }
       }
     };
@@ -81,11 +83,13 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
 
     // WebSocket connection
     const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
+    ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
     ws.onopen = () => {
-      terminal.write('\r\n\x1b[32m[SYSTEM] Connected to Terminal Hub\x1b[0m\r\n');
+      terminal.write(
+        "\r\n\x1b[32m[SYSTEM] Connected to Terminal Hub\x1b[0m\r\n",
+      );
       sendResize(ws);
     };
 
@@ -98,21 +102,23 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
     };
 
     ws.onclose = () => {
-      terminal.write('\r\n\x1b[31m[SYSTEM] Connection Closed\x1b[0m\r\n');
+      terminal.write("\r\n\x1b[31m[SYSTEM] Connection Closed\x1b[0m\r\n");
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-      terminal.write('\r\n\x1b[31m[SYSTEM] WebSocket Error\x1b[0m\r\n');
+      console.error("WebSocket Error:", err);
+      terminal.write("\r\n\x1b[31m[SYSTEM] WebSocket Error\x1b[0m\r\n");
     };
 
     // Terminal input handling
     const handleData = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'input',
-          data: data
-        }));
+        ws.send(
+          JSON.stringify({
+            type: "input",
+            data: data,
+          }),
+        );
       }
     };
 
@@ -128,19 +134,19 @@ const TerminalComponent = ({ wsUrl }: TerminalProps) => {
       }, 100);
     };
 
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
 
     // Cleanup
     return () => {
       clearTimeout(initialFitTimeout);
       clearTimeout(resizeTimeout);
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener("resize", handleResize);
       terminal.dispose();
       ws.close();
     };
   }, [wsUrl]);
 
-  return <div ref={terminalRef} style={{ height: '100%', width: '100%' }} />;
+  return <div ref={terminalRef} style={{ height: "100%", width: "100%" }} />;
 };
 
 export default TerminalComponent;
