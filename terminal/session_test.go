@@ -456,3 +456,197 @@ var _ = Describe("TerminalSession Race Conditions", func() {
 		})
 	})
 })
+
+var _ = Describe("Rate Limiting DoS Protection", func() {
+	Context("When session produces excessive output", func() {
+		It("should not hang server on continuous output like 'cat /dev/random'", func() {
+			// Create a simulated PTY service
+			ptySvc, err := NewSimulatedPTYService()
+			Expect(err).ToNot(HaveOccurred())
+
+			session := &TerminalSession{
+				id:      "test-dos-protection",
+				ptyFile: ptySvc.ptyReader,
+				history: NewInMemoryHistory(4096),
+				ptySvc:  ptySvc,
+				metadata: SessionMetadata{
+					Name:           "dos-test",
+					CreatedAt:      time.Now(),
+					LastActivityAt: time.Now(),
+					ClientCount:    0,
+				},
+				termCols:       80,
+				termRows:       24,
+				clients:        make(map[WebSocketClient]bool),
+				broadcast:      make(chan []byte, 256),
+				orderedClients: make([]WebSocketClient, 0),
+				closed:         false,
+				outputRateLimit: make(chan struct{}, 500),
+			}
+
+			go session.readPTY()
+			go session.broadcastLoop()
+
+			// Create a slow client that doesn't read from the channel
+			slowClient := &MockWebSocketClient{
+				sendChan: make(chan []byte, 1), // Small buffer to cause slow sends
+				closed:   false,
+			}
+			session.AddClient(slowClient)
+
+			// Create a normal client
+			normalClient := NewMockWebSocketClient()
+			session.AddClient(normalClient)
+
+			// Simulate continuous output (like cat /dev/random)
+			// Generate output at high rate for 2 seconds
+			done := make(chan bool)
+			go func() {
+				for i := 0; i < 10000; i++ {
+					ptySvc.SimulateOutput([]byte("random data output "))
+				}
+				done <- true
+			}()
+
+			// The key test: verify that we don't hang
+			// The server should still be responsive after excessive output
+			select {
+			case <-done:
+				// Good - output generation completed
+			case <-time.After(5 * time.Second):
+				// Bad - the server hung
+				Fail("Server hung on excessive output")
+			}
+
+			// Verify that the slow client was removed due to being overwhelmed
+			Eventually(func() bool {
+				return slowClient.IsClosed()
+			}, 2*time.Second).Should(BeTrue(), "Slow client should be removed")
+
+			// Verify that normal client can still receive data
+			Eventually(func() int {
+				return len(normalClient.sendChan)
+			}, 1*time.Second).Should(BeNumerically(">", 0), "Normal client should receive data")
+
+			// Clean up
+			session.Close()
+			ptySvc.Close()
+		})
+
+		It("should drop messages when rate limit is exceeded", func() {
+			ptySvc, err := NewSimulatedPTYService()
+			Expect(err).ToNot(HaveOccurred())
+
+			session := &TerminalSession{
+				id:      "test-rate-limit",
+				ptyFile: ptySvc.ptyReader,
+				history: NewInMemoryHistory(4096),
+				ptySvc:  ptySvc,
+				metadata: SessionMetadata{
+					Name:           "rate-limit-test",
+					CreatedAt:      time.Now(),
+					LastActivityAt: time.Now(),
+					ClientCount:    0,
+				},
+				termCols:       80,
+				termRows:       24,
+				clients:        make(map[WebSocketClient]bool),
+				broadcast:      make(chan []byte, 256),
+				orderedClients: make([]WebSocketClient, 0),
+				closed:         false,
+				outputRateLimit: make(chan struct{}, 500),
+			}
+
+			go session.readPTY()
+			go session.broadcastLoop()
+
+			client := NewMockWebSocketClient()
+			session.AddClient(client)
+
+			// Fill the rate limit bucket
+			for i := 0; i < 500; i++ {
+				session.outputRateLimit <- struct{}{}
+			}
+
+			// Simulate output faster than rate limit
+			// These should trigger the rate limit
+			for i := 0; i < 100; i++ {
+				ptySvc.SimulateOutput([]byte("test data "))
+				time.Sleep(100 * time.Microsecond)
+			}
+
+			// Wait a bit
+			time.Sleep(100 * time.Millisecond)
+
+			// The client should receive some messages but not all (rate limited)
+			// The exact number depends on timing, but should be reasonable
+			receivedCount := len(client.sendChan)
+			// With rate limit of 500/sec and 100 messages over ~10ms, 
+			// we should receive less than all messages
+			Expect(receivedCount).To(BeNumerically("<", 100), "Rate limiting should drop some messages")
+
+			session.Close()
+			ptySvc.Close()
+		})
+
+		It("should recover and continue after rate limit subsides", func() {
+			ptySvc, err := NewSimulatedPTYService()
+			Expect(err).ToNot(HaveOccurred())
+
+			session := &TerminalSession{
+				id:      "test-rate-limit-recovery",
+				ptyFile: ptySvc.ptyReader,
+				history: NewInMemoryHistory(4096),
+				ptySvc:  ptySvc,
+				metadata: SessionMetadata{
+					Name:           "rate-limit-recovery-test",
+					CreatedAt:      time.Now(),
+					LastActivityAt: time.Now(),
+					ClientCount:    0,
+				},
+				termCols:       80,
+				termRows:       24,
+				clients:        make(map[WebSocketClient]bool),
+				broadcast:      make(chan []byte, 256),
+				orderedClients: make([]WebSocketClient, 0),
+				closed:         false,
+				outputRateLimit: make(chan struct{}, 500),
+			}
+
+			go session.readPTY()
+			go session.broadcastLoop()
+
+			// Use a client with a large buffer to avoid being removed during burst
+			client := &MockWebSocketClient{
+				sendChan: make(chan []byte, 1000),
+				closed:   false,
+			}
+			session.AddClient(client)
+
+			// Burst of output to trigger rate limiting
+			for i := 0; i < 600; i++ {
+				ptySvc.SimulateOutput([]byte("burst "))
+				time.Sleep(1 * time.Microsecond)
+			}
+
+			// Wait for rate limit to recover
+			time.Sleep(200 * time.Millisecond)
+
+			// Clear the channel
+			for len(client.sendChan) > 0 {
+				<-client.sendChan
+			}
+
+			// Send normal output
+			ptySvc.SimulateOutput([]byte("normal output "))
+
+			// Verify we can receive normal output after rate limiting subsides
+			received := client.Receive(1 * time.Second)
+			Expect(received).NotTo(BeNil(), "Should receive data after rate limit recovers")
+			Expect(string(received)).To(Equal("normal output "))
+
+			session.Close()
+			ptySvc.Close()
+		})
+	})
+})

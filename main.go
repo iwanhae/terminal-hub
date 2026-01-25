@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -282,6 +283,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Write pump
 	go func() {
+		// Set write timeout to prevent hanging on slow clients
+		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		for {
 			message, ok := <-wsClient.send
 			if !ok {
@@ -290,8 +293,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+
+			// Reset write deadline before each message
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
 			w, err := conn.NextWriter(websocket.BinaryMessage)
 			if err != nil {
+				log.Printf("Error getting writer: %v", err)
 				return
 			}
 			if _, err := w.Write(message); err != nil {
@@ -299,6 +307,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := w.Close(); err != nil {
+				log.Printf("Error closing writer: %v", err)
 				return
 			}
 		}
