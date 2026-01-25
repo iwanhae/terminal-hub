@@ -81,6 +81,11 @@ type TerminalSession struct {
 	broadcast      chan []byte
 	orderedClients []WebSocketClient
 
+	// Session rate limiting
+	outputRateLimit   chan struct{}
+	rateLimitMu       sync.Mutex
+	lastRateLimitWarn time.Time
+
 	// Lifecycle
 	closed  bool
 	closeMu sync.RWMutex
@@ -146,6 +151,7 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 		broadcast:      make(chan []byte, 256),
 		orderedClients: make([]WebSocketClient, 0),
 		closed:         false,
+		outputRateLimit: make(chan struct{}, 500), // Max 500 messages per second
 	}
 
 	// Start PTY reader goroutine
@@ -385,6 +391,20 @@ func (s *TerminalSession) readPTY() {
 		data := make([]byte, n)
 		copy(data, buf[:n])
 
+		// Rate limiting: only allow up to 500 messages per second
+		select {
+		case s.outputRateLimit <- struct{}{}:
+		default:
+			// Rate limit exceeded, log warning periodically
+			s.rateLimitMu.Lock()
+			if time.Since(s.lastRateLimitWarn) > 5*time.Second {
+				log.Printf("Session %s: Output rate limit exceeded, dropping messages", s.id)
+				s.lastRateLimitWarn = time.Now()
+			}
+			s.rateLimitMu.Unlock()
+			continue
+		}
+
 		// Save to history
 		if _, err := s.history.Write(data); err != nil {
 			log.Printf("Error writing to history: %v", err)
@@ -406,24 +426,46 @@ func (s *TerminalSession) readPTY() {
 
 // broadcastLoop broadcasts PTY output to all connected clients
 func (s *TerminalSession) broadcastLoop() {
-	for {
-		data, ok := <-s.broadcast
-		if !ok {
-			// Channel closed, exit loop
-			return
-		}
+	// Use a ticker to periodically release the rate limiter
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 
-		s.clientsMu.Lock()
-		for client := range s.clients {
-			if err := client.Send(data); err != nil {
-				// If send fails, close and remove the client
-				if closeErr := client.Close(); closeErr != nil {
-					log.Printf("Error closing client after send failure: %v", closeErr)
+	for {
+		select {
+		case data, ok := <-s.broadcast:
+			if !ok {
+				// Channel closed, exit loop
+				return
+			}
+
+			s.clientsMu.Lock()
+			for client := range s.clients {
+				if err := client.Send(data); err != nil {
+					// If send fails, close and remove the client
+					if closeErr := client.Close(); closeErr != nil {
+						log.Printf("Error closing client after send failure: %v", closeErr)
+					}
+					delete(s.clients, client)
+					log.Printf("Session %s: Removed slow/unresponsive client", s.id)
 				}
-				delete(s.clients, client)
+			}
+			s.clientsMu.Unlock()
+
+			// Release one token from rate limit (acts as refill)
+			select {
+			case <-s.outputRateLimit:
+			default:
+			}
+
+		case <-ticker.C:
+			// Continuously release rate limit tokens to allow normal throughput
+			for i := 0; i < 5; i++ { // Release 5 tokens every 10ms = 500/sec
+				select {
+				case <-s.outputRateLimit:
+				default:
+				}
 			}
 		}
-		s.clientsMu.Unlock()
 	}
 }
 
