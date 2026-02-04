@@ -1,28 +1,173 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import TerminalComponent from "../components/Terminal";
+import TerminalComponent, { type TerminalHandle } from "../components/Terminal";
 
 export default function TerminalPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const terminalRef = useRef<TerminalHandle>(null);
+  const [ctrlActive, setCtrlActive] = useState(false);
 
-  if (typeof sessionId !== "string" || sessionId.trim() === "") {
-    // Redirect to home if no session ID
+  const trimmedSessionId =
+    typeof sessionId === "string" ? sessionId.trim() : "";
+
+  useEffect(() => {
+    if (trimmedSessionId !== "") return;
+
     const result = navigate("/");
     if (result instanceof Promise) {
       result.catch((error: Error) => {
         console.error(error);
       });
     }
-    return null;
-  }
+  }, [navigate, trimmedSessionId]);
 
   // Determine WebSocket URL based on current protocol
   const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-  const wsUrl = `${protocol}${window.location.host}/ws/${sessionId}`;
+  const wsUrl = `${protocol}${window.location.host}/ws/${trimmedSessionId}`;
+
+  const send = useCallback((data: string) => {
+    terminalRef.current?.sendInput(data);
+  }, []);
+
+  const sendCtrl = useCallback(
+    (letter: string) => {
+      const upper = letter.toUpperCase();
+      if (upper.length !== 1) return;
+      const codePoint = upper.codePointAt(0);
+      if (codePoint === undefined) return;
+      const code = codePoint - 64;
+      if (code < 1 || code > 26) return;
+      send(String.fromCodePoint(code));
+      setCtrlActive(false);
+    },
+    [send],
+  );
+
+  const paste = useCallback(
+    async (withEnter: boolean) => {
+      const text = await navigator.clipboard
+        .readText()
+        .catch(() => prompt("Paste text") ?? "");
+
+      if (text === "") return;
+      send(text + (withEnter ? "\r" : ""));
+      terminalRef.current?.focus();
+    },
+    [send],
+  );
+
+  if (trimmedSessionId === "") return null;
 
   return (
     <div className="flex-1 relative w-full bg-black min-h-0">
-      <TerminalComponent wsUrl={wsUrl} />
+      <TerminalComponent ref={terminalRef} wsUrl={wsUrl} />
+
+      <div className="md:hidden absolute inset-x-0 bottom-0 z-20 px-2 pb-2">
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-900/80 border border-zinc-800 backdrop-blur">
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-esc"
+            onClick={() => send("\x1b")}
+          >
+            Esc
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-tab"
+            onClick={() => send("\t")}
+          >
+            Tab
+          </button>
+
+          <button
+            type="button"
+            className={`px-2 py-1 rounded-md border transition-colors ${
+              ctrlActive
+                ? "bg-indigo-600 text-white border-indigo-500"
+                : "bg-zinc-950 text-zinc-200 border-zinc-800"
+            }`}
+            data-testid="extra-key-ctrl"
+            onClick={() => setCtrlActive((v) => !v)}
+          >
+            Ctrl
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-c"
+            onClick={() => (ctrlActive ? sendCtrl("C") : send("c"))}
+          >
+            C
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-l"
+            onClick={() => (ctrlActive ? sendCtrl("L") : send("l"))}
+          >
+            L
+          </button>
+
+          <div className="flex-1" />
+
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-left"
+            onClick={() => send("\x1b[D")}
+          >
+            {"<"}
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-up"
+            onClick={() => send("\x1b[A")}
+          >
+            ^
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-down"
+            onClick={() => send("\x1b[B")}
+          >
+            v
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-right"
+            onClick={() => send("\x1b[C")}
+          >
+            {">"}
+          </button>
+
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="paste"
+            onClick={() => {
+              void paste(false);
+            }}
+          >
+            Paste
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-indigo-600 text-white border border-indigo-500"
+            data-testid="paste-enter"
+            onClick={() => {
+              void paste(true);
+            }}
+          >
+            Paste+Enter
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
