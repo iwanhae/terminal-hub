@@ -37,7 +37,9 @@ const API_BASE_URL = "/api";
 export const api = {
   // List all sessions
   async listSessions(): Promise<SessionInfo[]> {
-    const response = await fetch(`${API_BASE_URL}/sessions`);
+    const response = await fetch(`${API_BASE_URL}/sessions`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       throw new Error(`Failed to list sessions: ${response.statusText}`);
     }
@@ -50,6 +52,7 @@ export const api = {
   ): Promise<CreateSessionResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -68,6 +71,7 @@ export const api = {
   async deleteSession(sessionId: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
       method: "DELETE",
+      credentials: "include",
     });
 
     if (!response.ok) {
@@ -83,6 +87,7 @@ export const api = {
   ): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
       method: "PUT",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
