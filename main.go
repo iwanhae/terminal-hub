@@ -29,11 +29,15 @@ func (c *WebSocketClientImpl) Send(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.send == nil {
+		return websocket.ErrCloseSent
+	}
+
 	select {
 	case c.send <- data:
 		return nil
-	default:
-		return c.Close()
+	case <-time.After(2 * time.Second):
+		return os.ErrDeadlineExceeded
 	}
 }
 

@@ -145,12 +145,12 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 			ClientCount:      0,
 			WorkingDirectory: config.WorkingDirectory,
 		},
-		termCols:       80, // Default size
-		termRows:       24,
-		clients:        make(map[WebSocketClient]bool),
-		broadcast:      make(chan []byte, 256),
-		orderedClients: make([]WebSocketClient, 0),
-		closed:         false,
+		termCols:        80, // Default size
+		termRows:        24,
+		clients:         make(map[WebSocketClient]bool),
+		broadcast:       make(chan []byte, 256),
+		orderedClients:  make([]WebSocketClient, 0),
+		closed:          false,
 		outputRateLimit: make(chan struct{}, 500), // Max 500 messages per second
 	}
 
@@ -414,11 +414,11 @@ func (s *TerminalSession) readPTY() {
 		s.closeMu.Lock()
 		closed = s.closed
 		if !closed {
-			select {
-			case s.broadcast <- data:
-			default:
-				// Channel buffer full (shouldn't happen with size 256), skip
-			}
+			// BLOCKING send to broadcast channel
+			// This will block reading from PTY if the channel is full (backpressure)
+			// The broadcast channel is consumed by broadcastLoop, which handles
+			// sending to clients with timeouts.
+			s.broadcast <- data
 		}
 		s.closeMu.Unlock()
 	}
