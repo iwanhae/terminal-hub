@@ -115,6 +115,39 @@ func sessionAuthMiddleware(next http.HandlerFunc, sm *auth.SessionManager) http.
 	}
 }
 
+// isPublicPath checks if a path should bypass authentication
+// This includes the login page and static assets needed for the SPA
+func isPublicPath(path string) bool {
+	// Trim trailing slashes for consistent comparison
+	trimmedPath := strings.TrimSuffix(path, "/")
+	
+	// Login page (client-side React route)
+	if trimmedPath == "/login" {
+		return true
+	}
+	
+	// Static assets required for SPA
+	publicPrefixes := []string{"/assets/"}
+	for _, prefix := range publicPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	
+	// Public files (from frontend/dist/)
+	// NOTE: This list should be kept in sync with the frontend build output.
+	// These are root-level files that don't fall under /assets/ but are needed
+	// for PWA support (manifest, service worker) and branding (icons).
+	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg"}
+	for _, file := range publicFiles {
+		if path == file {
+			return true
+		}
+	}
+	
+	return false
+}
+
 // isAPIRequest checks if request is for API/WebSocket
 func isAPIRequest(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/api/") ||
@@ -634,20 +667,38 @@ func main() {
 	})
 
 	// Serve the embedded React frontend with SPA fallback
-	http.HandleFunc("/", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve the requested file
-		path := r.URL.Path
-
-		// Check if the file exists in the embedded filesystem
-		if _, err := embeddedFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is a public path that should bypass authentication
+		// This is safe because:
+		// 1. Static assets (JS, CSS) don't contain sensitive data
+		// 2. The SPA needs these files to render the login page
+		// 3. Actual data protection happens at the API level
+		if isPublicPath(r.URL.Path) {
+			// For /login route, serve index.html for React SPA routing
+			trimmedPath := strings.TrimSuffix(r.URL.Path, "/")
+			if trimmedPath == "/login" {
+				r.URL.Path = "/"
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
-		// If not found, serve index.html for SPA routing
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	}, sessionAuthManager))
+		// Apply authentication middleware for all other routes
+		sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			// Try to serve the requested file
+			path := r.URL.Path
+
+			// Check if the file exists in the embedded filesystem
+			if _, err := embeddedFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+
+			// If not found, serve index.html for SPA routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+		}, sessionAuthManager)(w, r)
+	})
 
 	// REST API routes
 	http.HandleFunc("/api/sessions", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
