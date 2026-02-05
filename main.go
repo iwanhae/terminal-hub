@@ -635,10 +635,19 @@ func main() {
 
 	// Serve the embedded React frontend with SPA fallback
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Allow /login route to bypass authentication for SPA
-		if r.URL.Path == "/login" {
-			// Serve index.html for React SPA routing
-			r.URL.Path = "/"
+		// Allow /login route and static assets to bypass authentication for SPA
+		// This is safe because:
+		// 1. Static assets (JS, CSS) don't contain sensitive data
+		// 2. The SPA needs these files to render the login page
+		// 3. Actual data protection happens at the API level
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if path == "/login" || strings.HasPrefix(r.URL.Path, "/assets/") || 
+		   r.URL.Path == "/manifest.webmanifest" || r.URL.Path == "/sw.js" ||
+		   r.URL.Path == "/vite.svg" || r.URL.Path == "/terminal-hub-icon.svg" {
+			// For /login route, serve index.html
+			if path == "/login" {
+				r.URL.Path = "/"
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
