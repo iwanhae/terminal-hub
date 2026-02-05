@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createSession } from "./utils";
+import { createSession } from "./utilities";
 
 test("mobile drawer opens and navigates", async ({ page, request }) => {
   const sessionId = await createSession(request);
