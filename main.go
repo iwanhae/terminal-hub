@@ -3,10 +3,15 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -235,6 +240,105 @@ func handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleFileDownload handles GET /api/download
+func handleFileDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get file path from query parameter
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "File path is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get optional custom filename
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		filename = filepath.Base(filePath)
+	}
+
+	// Security: Clean the path to prevent directory traversal
+	cleanPath := filepath.Clean(filePath)
+
+	// Additional security: Ensure path is absolute
+	if !filepath.IsAbs(cleanPath) {
+		http.Error(w, "File path must be absolute", http.StatusBadRequest)
+		return
+	}
+
+	// Get file info
+	fileInfo, err := os.Stat(cleanPath)
+	if os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("Error accessing file: %v", err)
+		http.Error(w, "Failed to access file", http.StatusInternalServerError)
+		return
+	}
+
+	// Security: Don't allow downloading directories
+	if fileInfo.IsDir() {
+		http.Error(w, "Cannot download directory", http.StatusBadRequest)
+		return
+	}
+
+	// File size limit check (default 100MB)
+	maxFileSize := int64(100 * 1024 * 1024)
+	if maxSizeStr := os.Getenv("TERMINAL_HUB_MAX_DOWNLOAD_SIZE"); maxSizeStr != "" {
+		if maxSize, err := strconv.ParseInt(maxSizeStr, 10, 64); err == nil {
+			maxFileSize = maxSize
+		}
+	}
+	if fileInfo.Size() > maxFileSize {
+		http.Error(w, fmt.Sprintf("File too large (max %d MB)", maxFileSize/(1024*1024)),
+			http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	// Open the file
+	file, err := os.Open(cleanPath)
+	if err != nil {
+		log.Printf("Error opening file: %v", err)
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// Detect content type
+	contentType := mime.TypeByExtension(filepath.Ext(cleanPath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// Set headers for download
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"%s\"", sanitizeFilename(filename)))
+	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	w.Header().Set("Cache-Control", "no-cache")
+
+	// Stream file to client
+	http.ServeContent(w, r, filename, fileInfo.ModTime(), file)
+
+	log.Printf("File downloaded: path=%s, size=%d, filename=%s",
+		cleanPath, fileInfo.Size(), filename)
+}
+
+// sanitizeFilename removes dangerous characters from filename
+func sanitizeFilename(name string) string {
+	name = filepath.Base(name)
+	name = strings.ReplaceAll(name, "..", "")
+	name = strings.ReplaceAll(name, "/", "")
+	name = strings.ReplaceAll(name, "\\", "")
+	reg := regexp.MustCompile(`[^a-zA-Z0-9._\s-]`)
+	return reg.ReplaceAllString(name, "")
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL path
 	// URL format: /ws/:sessionId
@@ -414,6 +518,9 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}, username, password))
+
+	// File download endpoint (session-independent)
+	http.HandleFunc("/api/download", basicAuthMiddleware(handleFileDownload, username, password))
 
 	// WebSocket route - handle /ws/:sessionId
 	http.HandleFunc("/ws/", basicAuthMiddleware(handleWebSocket, username, password))
