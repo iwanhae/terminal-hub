@@ -197,28 +197,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       };
     }, [wsUrl]);
 
-    const sendExtraKey = (key: string) => {
-      if (
-        wsRef.current?.readyState === WebSocket.OPEN &&
-        terminalInstanceRef.current
-      ) {
-        terminalInstanceRef.current.paste(key);
-      }
-    };
-
-    const handlePaste = () => {
-      void (async () => {
-        try {
-          const text = await navigator.clipboard.readText();
-          if (text) {
-            sendInputRef.current(text);
-          }
-        } catch (error) {
-          console.error("Paste failed:", error);
-        }
-      })();
-    };
-
     return (
       <div
         ref={wrapperRef}
@@ -227,72 +205,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         onPointerDown={() => focus()}
       >
         <div ref={terminalRef} className="absolute inset-0 overflow-hidden" />
-        <div className="md:hidden absolute bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 p-2 flex flex-wrap gap-2 items-center justify-center">
-          <button
-            data-testid="extra-key-esc"
-            onClick={() => sendExtraKey("\x1b")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="ESC"
-          >
-            ESC
-          </button>
-          <button
-            data-testid="extra-key-tab"
-            onClick={() => sendExtraKey("\t")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Tab"
-          >
-            TAB
-          </button>
-          <button
-            data-testid="extra-key-pgup"
-            onClick={() => sendExtraKey("\x1b[5~")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Page Up"
-          >
-            PgUp
-          </button>
-          <button
-            data-testid="extra-key-pgdn"
-            onClick={() => sendExtraKey("\x1b[6~")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Page Down"
-          >
-            PgDn
-          </button>
-          <button
-            data-testid="extra-key-ctrl-a"
-            onClick={() => sendExtraKey("\x01")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Ctrl+A"
-          >
-            Ctrl+A
-          </button>
-          <button
-            data-testid="extra-key-ctrl-c"
-            onClick={() => sendExtraKey("\x03")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Ctrl+C"
-          >
-            Ctrl+C
-          </button>
-          <button
-            data-testid="extra-key-ctrl-l"
-            onClick={() => sendExtraKey("\x0c")}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-xs font-mono transition-colors"
-            title="Ctrl+L (Clear)"
-          >
-            Ctrl+L
-          </button>
-          <button
-            data-testid="extra-key-paste"
-            onClick={() => handlePaste()}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-mono transition-colors"
-            title="Paste from clipboard"
-          >
-            Paste
-          </button>
-        </div>
       </div>
     );
   },

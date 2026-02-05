@@ -7,6 +7,7 @@ export default function TerminalPage() {
   const navigate = useNavigate();
   const terminalRef = useRef<TerminalHandle>(null);
   const [ctrlActive, setCtrlActive] = useState(false);
+  const [isKeyboardExpanded, setIsKeyboardExpanded] = useState(false);
 
   const trimmedSessionId =
     typeof sessionId === "string" ? sessionId.trim() : "";
@@ -60,11 +61,13 @@ export default function TerminalPage() {
   if (trimmedSessionId === "") return null;
 
   return (
-    <div className="flex-1 relative w-full bg-black min-h-0">
-      <TerminalComponent ref={terminalRef} wsUrl={wsUrl} />
+    <div className="flex-1 flex flex-col w-full bg-black min-h-0 overflow-hidden">
+      <div className="flex-1 relative min-h-0">
+        <TerminalComponent ref={terminalRef} wsUrl={wsUrl} />
+      </div>
 
-      <div className="md:hidden absolute inset-x-0 bottom-0 z-20 px-2 pb-2">
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-900/80 border border-zinc-800 backdrop-blur">
+      <div className="md:hidden flex-shrink-0 px-2 pb-2 pt-1 bg-zinc-900 border-t border-zinc-800">
+        <div className="flex items-center gap-1 flex-wrap">
           <button
             type="button"
             className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
@@ -81,7 +84,6 @@ export default function TerminalPage() {
           >
             Tab
           </button>
-
           <button
             type="button"
             className={`px-2 py-1 rounded-md border transition-colors ${
@@ -105,21 +107,10 @@ export default function TerminalPage() {
           <button
             type="button"
             className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
-            data-testid="extra-key-l"
-            onClick={() => (ctrlActive ? sendCtrl("L") : send("l"))}
-          >
-            L
-          </button>
-
-          <div className="flex-1" />
-
-          <button
-            type="button"
-            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
             data-testid="extra-key-left"
             onClick={() => send("\x1b[D")}
           >
-            {"<"}
+            ←
           </button>
           <button
             type="button"
@@ -127,7 +118,7 @@ export default function TerminalPage() {
             data-testid="extra-key-up"
             onClick={() => send("\x1b[A")}
           >
-            ^
+            ↑
           </button>
           <button
             type="button"
@@ -135,7 +126,7 @@ export default function TerminalPage() {
             data-testid="extra-key-down"
             onClick={() => send("\x1b[B")}
           >
-            v
+            ↓
           </button>
           <button
             type="button"
@@ -143,30 +134,66 @@ export default function TerminalPage() {
             data-testid="extra-key-right"
             onClick={() => send("\x1b[C")}
           >
-            {">"}
-          </button>
-
-          <button
-            type="button"
-            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
-            data-testid="paste"
-            onClick={() => {
-              void paste(false);
-            }}
-          >
-            Paste
-          </button>
-          <button
-            type="button"
-            className="px-2 py-1 rounded-md bg-indigo-600 text-white border border-indigo-500"
-            data-testid="paste-enter"
-            onClick={() => {
-              void paste(true);
-            }}
-          >
-            Paste+Enter
+            →
           </button>
         </div>
+
+        {isKeyboardExpanded && (
+          <div className="flex items-center gap-1 flex-wrap mt-1">
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+              data-testid="extra-key-pgup"
+              onClick={() => send("\x1b[5~")}
+            >
+              PgUp
+            </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+              data-testid="extra-key-pgdn"
+              onClick={() => send("\x1b[6~")}
+            >
+              PgDn
+            </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+              data-testid="extra-key-l"
+              onClick={() => (ctrlActive ? sendCtrl("L") : send("l"))}
+            >
+              L
+            </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+              data-testid="paste"
+              onClick={() => {
+                void paste(false);
+              }}
+            >
+              Paste
+            </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-indigo-600 text-white border border-indigo-500"
+              data-testid="paste-enter"
+              onClick={() => {
+                void paste(true);
+              }}
+            >
+              Paste+Enter
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="w-full mt-1 px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
+          onClick={() => setIsKeyboardExpanded((v) => !v)}
+        >
+          {isKeyboardExpanded ? "▼ Less" : "▶ More"}
+        </button>
       </div>
     </div>
   );
