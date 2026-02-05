@@ -134,7 +134,10 @@ func isPublicPath(path string) bool {
 		}
 	}
 	
-	// Public files
+	// Public files (from frontend/dist/)
+	// NOTE: This list should be kept in sync with the frontend build output.
+	// These are root-level files that don't fall under /assets/ but are needed
+	// for PWA support (manifest, service worker) and branding (icons).
 	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg"}
 	for _, file := range publicFiles {
 		if path == file {
@@ -672,7 +675,8 @@ func main() {
 		// 3. Actual data protection happens at the API level
 		if isPublicPath(r.URL.Path) {
 			// For /login route, serve index.html for React SPA routing
-			if strings.TrimSuffix(r.URL.Path, "/") == "/login" {
+			trimmedPath := strings.TrimSuffix(r.URL.Path, "/")
+			if trimmedPath == "/login" {
 				r.URL.Path = "/"
 			}
 			fileServer.ServeHTTP(w, r)
