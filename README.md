@@ -8,7 +8,7 @@ A web-based terminal application that provides browser-based access to shell ses
 - **WebSocket-based**: Real-time terminal I/O using xterm.js
 - **RESTful API**: Manage sessions via HTTP endpoints
 - **Browser-based**: Access terminals from any modern web browser
-- **Authentication**: Optional HTTP Basic Authentication for securing access
+- **Cookie-based Authentication**: Secure session management with web login
 - **File downloads**: Download files directly from the terminal using OSC escape sequences
 
 ## Quick Start
@@ -37,7 +37,7 @@ make build
 
 ## Authentication
 
-Terminal Hub supports optional HTTP Basic Authentication. When enabled, your browser will prompt for credentials when you access the terminal interface.
+Terminal Hub supports cookie-based session authentication for secure access. When enabled, users must log in via a web form to access the terminal interface.
 
 ### Enabling Authentication
 
@@ -45,8 +45,9 @@ Set the following environment variables:
 
 - `TERMINAL_HUB_USERNAME` - Username for authentication
 - `TERMINAL_HUB_PASSWORD` - Password for authentication
+- `TERMINAL_HUB_SESSION_TTL` (optional) - Session duration (default: "24h")
 
-If both variables are set, authentication is **required** for all access (web interface, API, and WebSocket connections). If either variable is missing or empty, the application runs in open mode (no authentication).
+If both username and password are set, authentication is **required** for all access. If either is missing or empty, the application runs in open mode.
 
 ### Examples
 
@@ -54,6 +55,12 @@ If both variables are set, authentication is **required** for all access (web in
 ```bash
 export TERMINAL_HUB_USERNAME=admin
 export TERMINAL_HUB_PASSWORD=your-secure-password
+./build/terminal-hub
+```
+
+**With custom session duration:**
+```bash
+export TERMINAL_HUB_SESSION_TTL=12h
 ./build/terminal-hub
 ```
 
@@ -75,29 +82,29 @@ services:
     environment:
       TERMINAL_HUB_USERNAME: admin
       TERMINAL_HUB_PASSWORD: your-secure-password
+      TERMINAL_HUB_SESSION_TTL: "24h"
 ```
 
-### Testing Authentication
+### Security Features
 
-```bash
-# Without authentication
-curl http://localhost:8081/api/sessions
-
-# With authentication (will prompt for password)
-curl -u admin:your-secure-password http://localhost:8081/api/sessions
-```
+1. **HttpOnly Cookies**: Prevents JavaScript access (XSS protection)
+2. **Secure Flag**: Only sent over HTTPS when available
+3. **SameSite=Strict**: Prevents CSRF attacks
+4. **Sliding Expiration**: Sessions extend with activity (up to TTL)
+5. **Cryptographic Tokens**: 256-bit random session tokens
+6. **Background Cleanup**: Expired sessions removed every 5 minutes
 
 ### Security Notes
 
 ⚠️ **Important security considerations:**
 
-1. **HTTPS Recommended**: Basic Auth sends credentials in base64 encoding (easily decoded). Always use HTTPS in production environments.
+1. **HTTPS Recommended**: Session cookies are more secure over HTTPS. Enable HTTPS in production environments.
 2. **Strong Passwords**: Use strong, unique passwords for `TERMINAL_HUB_PASSWORD`.
 3. **Environment Variable Security**: Be careful how you set environment variables:
    - Don't commit credentials to git
    - Use secrets management in production (Docker secrets, Kubernetes secrets, etc.)
    - Use `.env` files with proper file permissions (add to `.gitignore`)
-4. **Docker Secrets**: For Docker deployments, consider using Docker secrets instead of environment variables for better security.
+4. **Session Management**: Users are automatically logged out after the session TTL period of inactivity.
 
 ## File Downloads
 
@@ -191,6 +198,12 @@ See [CLAUDE.md](CLAUDE.md) for detailed development documentation including:
 - Code organization
 
 ## API Endpoints
+
+### Authentication
+
+- `POST /api/auth/login` - Login with username/password (sets session cookie)
+- `POST /api/auth/logout` - Logout (clears session cookie)
+- `GET /api/auth/status` - Get current authentication status
 
 ### Sessions
 

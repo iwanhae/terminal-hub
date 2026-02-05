@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/iwanhae/terminal-hub/auth"
 	"github.com/iwanhae/terminal-hub/frontend/dist"
 	"github.com/iwanhae/terminal-hub/terminal"
 )
@@ -68,30 +69,164 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// basicAuthMiddleware wraps an http.HandlerFunc with HTTP Basic Authentication
-// If username or password is empty, authentication is disabled (for backwards compatibility)
-func basicAuthMiddleware(next http.HandlerFunc, username, password string) http.HandlerFunc {
+// sessionAuthMiddleware validates session cookies
+func sessionAuthMiddleware(next http.HandlerFunc, sm *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// If auth is not configured, skip authentication
-		if username == "" || password == "" {
+		// Skip auth if not configured
+		if !sm.IsConfigured() {
 			next(w, r)
 			return
 		}
 
-		// Extract Basic Auth credentials
-		user, pass, ok := r.BasicAuth()
-
-		// Validate credentials
-		if !ok || user != username || pass != password {
-			// Return 401 Unauthorized with WWW-Authenticate header
-			w.Header().Set("WWW-Authenticate", `Basic realm="Terminal Hub"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		// Extract session cookie
+		cookie, err := r.Cookie("session_token")
+		if err != nil {
+			if isAPIRequest(r) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
 			return
 		}
 
-		// Credentials valid, proceed to next handler
+		// Validate session
+		_, valid := sm.ValidateSession(cookie.Value)
+		if !valid {
+			// Clear invalid cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "session_token",
+				Value:    "",
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   isSecure(r),
+				SameSite: http.SameSiteStrictMode,
+				Path:     "/",
+			})
+
+			if isAPIRequest(r) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
+			return
+		}
+
 		next(w, r)
 	}
+}
+
+// isAPIRequest checks if request is for API/WebSocket
+func isAPIRequest(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/api/") ||
+		strings.HasPrefix(r.URL.Path, "/ws/")
+}
+
+// isSecure checks if using HTTPS
+func isSecure(r *http.Request) bool {
+	return r.URL.Scheme == "https" ||
+		r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
+// handleLogin handles POST /api/auth/login
+func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req auth.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Validate credentials
+	if !sm.ValidateCredentials(req.Username, req.Password) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(auth.LoginResponse{
+			Success: false,
+			Message: "Invalid username or password",
+		})
+		return
+	}
+
+	// Create session
+	session, err := sm.CreateSession(req.Username)
+	if err != nil {
+		log.Printf("Error creating session: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set secure cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    session.ID,
+		Expires:  time.Now().Add(24 * time.Hour),
+		HttpOnly: true,
+		Secure:   isSecure(r),
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(auth.LoginResponse{
+		Success: true,
+		Message: "Login successful",
+	})
+}
+
+// handleLogout handles POST /api/auth/logout
+func handleLogout(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Delete session
+	if cookie, err := r.Cookie("session_token"); err == nil {
+		sm.DeleteSession(cookie.Value)
+	}
+
+	// Clear cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    "",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecure(r),
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+// handleAuthStatus handles GET /api/auth/status
+func handleAuthStatus(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cookie, err := r.Cookie("session_token")
+	authenticated := false
+	username := ""
+
+	if err == nil {
+		if session, valid := sm.ValidateSession(cookie.Value); valid {
+			authenticated = true
+			username = session.Username
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated": authenticated,
+		"username":      username,
+	})
 }
 
 // InitSessionManager initializes the global session manager
@@ -456,12 +591,22 @@ func main() {
 	// Load authentication credentials from environment
 	username := os.Getenv("TERMINAL_HUB_USERNAME")
 	password := os.Getenv("TERMINAL_HUB_PASSWORD")
-	authEnabled := username != "" && password != ""
 
-	if authEnabled {
-		log.Printf("Authentication enabled for user: %s", username)
+	// Session TTL (default 24h)
+	sessionTTL := 24 * time.Hour
+	if ttlStr := os.Getenv("TERMINAL_HUB_SESSION_TTL"); ttlStr != "" {
+		if ttl, err := time.ParseDuration(ttlStr); err == nil {
+			sessionTTL = ttl
+		}
+	}
+
+	// Initialize session manager
+	sessionAuthManager := auth.NewSessionManager(username, password, sessionTTL)
+
+	if sessionAuthManager.IsConfigured() {
+		log.Printf("Cookie-based authentication enabled")
 	} else {
-		log.Printf("WARNING: No authentication configured (TERMINAL_HUB_USERNAME and TERMINAL_HUB_PASSWORD not set). Running in open mode.")
+		log.Printf("WARNING: No authentication configured")
 	}
 
 	if err := InitSessionManager(); err != nil {
@@ -477,8 +622,19 @@ func main() {
 	// Create a file server for the embedded files
 	fileServer := http.FileServer(http.FS(embeddedFS))
 
+	// Public routes (no auth)
+	http.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		handleLogin(w, r, sessionAuthManager)
+	})
+	http.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		handleLogout(w, r, sessionAuthManager)
+	})
+	http.HandleFunc("/api/auth/status", func(w http.ResponseWriter, r *http.Request) {
+		handleAuthStatus(w, r, sessionAuthManager)
+	})
+
 	// Serve the embedded React frontend with SPA fallback
-	http.HandleFunc("/", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Try to serve the requested file
 		path := r.URL.Path
 
@@ -491,10 +647,10 @@ func main() {
 		// If not found, serve index.html for SPA routing
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
-	}, username, password))
+	}, sessionAuthManager))
 
 	// REST API routes
-	http.HandleFunc("/api/sessions", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/sessions", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Handle /api/sessions (GET list, POST create)
 		switch r.Method {
 		case http.MethodGet:
@@ -504,10 +660,10 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	}, username, password))
+	}, sessionAuthManager))
 
 	// Handle /api/sessions/:id (DELETE, PUT)
-	http.HandleFunc("/api/sessions/", basicAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/sessions/", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Handle operations on specific sessions
 		switch r.Method {
 		case http.MethodDelete:
@@ -517,13 +673,13 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	}, username, password))
+	}, sessionAuthManager))
 
 	// File download endpoint (session-independent)
-	http.HandleFunc("/api/download", basicAuthMiddleware(handleFileDownload, username, password))
+	http.HandleFunc("/api/download", sessionAuthMiddleware(handleFileDownload, sessionAuthManager))
 
 	// WebSocket route - handle /ws/:sessionId
-	http.HandleFunc("/ws/", basicAuthMiddleware(handleWebSocket, username, password))
+	http.HandleFunc("/ws/", sessionAuthMiddleware(handleWebSocket, sessionAuthManager))
 
 	log.Printf("Server starting on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
