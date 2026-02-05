@@ -9,6 +9,7 @@ A web-based terminal application that provides browser-based access to shell ses
 - **RESTful API**: Manage sessions via HTTP endpoints
 - **Browser-based**: Access terminals from any modern web browser
 - **Authentication**: Optional HTTP Basic Authentication for securing access
+- **File downloads**: Download files directly from the terminal using OSC escape sequences
 
 ## Quick Start
 
@@ -98,6 +99,89 @@ curl -u admin:your-secure-password http://localhost:8081/api/sessions
    - Use `.env` files with proper file permissions (add to `.gitignore`)
 4. **Docker Secrets**: For Docker deployments, consider using Docker secrets instead of environment variables for better security.
 
+## File Downloads
+
+Terminal Hub supports downloading files directly from the terminal to your browser using OSC (Operating System Command) escape sequences. The terminal uses REST API endpoints for the actual file transmission, providing browser-native download support with progress indicators.
+
+### How It Works
+
+1. An OSC escape sequence is emitted in the terminal output
+2. The frontend detects the sequence and extracts the file path
+3. A REST API call is made to `/api/download` to retrieve the file
+4. The browser downloads the file using its native download manager
+
+### Triggering Downloads
+
+#### Method 1: Using OSC Escape Sequence (Direct)
+
+You can emit the OSC sequence directly from your shell:
+
+```bash
+# Syntax: printf '\033]FILE;download:path=<absolute-path>,name=<filename>\007'
+printf '\033]FILE;download:path=/tmp/myfile.txt,name=myfile.txt\007'
+```
+
+#### Method 2: Using the Helper Script
+
+Source the helper script in your shell:
+
+```bash
+source /path/to/scripts/download-helper.sh
+
+# Download with default filename (uses original filename)
+download-file /path/to/file.txt
+
+# Download with custom filename
+download-file /path/to/file.txt custom-name.txt
+
+# Using the alias
+dl /path/to/file.txt custom-name.txt
+```
+
+### API Endpoint
+
+- `GET /api/download?path=<file-path>&filename=<optional-filename>` - Download a file
+
+### Security Features
+
+1. **Path validation**: Only absolute paths are allowed
+2. **Path traversal protection**: Directory traversal attacks are blocked
+3. **File size limits**: Configurable via `TERMINAL_HUB_MAX_DOWNLOAD_SIZE` (default: 100MB)
+4. **Directory prevention**: Cannot download directories
+5. **Filename sanitization**: Dangerous characters are removed from filenames
+6. **Authentication**: Uses the same authentication as other endpoints
+
+### Configuration
+
+```bash
+# Maximum download size in bytes (default: 100MB)
+export TERMINAL_HUB_MAX_DOWNLOAD_SIZE=104857600
+```
+
+### Example Usage
+
+```bash
+# Create a test file
+echo "Hello World" > /tmp/test.txt
+
+# Trigger download
+printf '\033]FILE;download:path=/tmp/test.txt,name=test.txt\007'
+
+# The file will appear in your browser's download manager
+```
+
+### Troubleshooting
+
+**Download not starting:**
+- Verify the file exists and is readable by the server
+- Check that the path is absolute (starts with `/`)
+- Ensure the file size is within the configured limit
+- Check browser console for errors
+
+**Error message in terminal:**
+- Red `[Download Error]` messages indicate server-side errors
+- Check the server logs for details
+
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for detailed development documentation including:
@@ -114,6 +198,10 @@ See [CLAUDE.md](CLAUDE.md) for detailed development documentation including:
 - `POST /api/sessions` - Create a new session
 - `PUT /api/sessions/:id` - Update session name
 - `DELETE /api/sessions/:id` - Delete a session
+
+### File Download
+
+- `GET /api/download?path=<file-path>&filename=<optional-name>` - Download a file
 
 ### WebSocket
 
