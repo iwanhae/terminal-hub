@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
+import { useAuth } from "../hooks/useAuth";
 import CreateSessionDialog from "./CreateSessionDialog";
 import RenameSessionDialog from "./RenameSessionDialog";
 import type { SessionInfo } from "../services/api";
@@ -268,6 +269,7 @@ export default function Sidebar({
   testId,
 }: SidebarProps) {
   const { sessions } = useSessions();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -379,7 +381,7 @@ export default function Sidebar({
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-zinc-800">
+        <div className="p-3 border-t border-zinc-800 space-y-1">
           <button
             onClick={handleNavigateToDashboard}
             className={`w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${location.pathname === "/" ? "bg-zinc-800 text-zinc-100" : ""}`}
@@ -390,6 +392,16 @@ export default function Sidebar({
             {!collapsed && (
               <span className="text-sm font-medium">Dashboard</span>
             )}
+          </button>
+          <button
+            onClick={() => {
+              void logout();
+            }}
+            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+            title="Logout"
+          >
+            <span className="text-lg">⏻</span>
+            {!collapsed && <span className="text-sm font-medium">Logout</span>}
           </button>
         </div>
       </div>

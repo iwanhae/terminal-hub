@@ -1,0 +1,21 @@
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import type { ReactNode } from "react";
+
+export function ProtectedRoute({ children }: { readonly children: ReactNode }) {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-zinc-950">
+        <div className="text-zinc-500">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
