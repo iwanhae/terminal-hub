@@ -23,6 +23,8 @@ import (
 	"github.com/iwanhae/terminal-hub/terminal"
 )
 
+var Version string // Set via ldflags during build
+
 // WebSocketClientImpl implements terminal.WebSocketClient for gorilla/websocket
 type WebSocketClientImpl struct {
 	conn *websocket.Conn
@@ -120,12 +122,12 @@ func sessionAuthMiddleware(next http.HandlerFunc, sm *auth.SessionManager) http.
 func isPublicPath(path string) bool {
 	// Trim trailing slashes for consistent comparison
 	trimmedPath := strings.TrimSuffix(path, "/")
-	
+
 	// Login page (client-side React route)
 	if trimmedPath == "/login" {
 		return true
 	}
-	
+
 	// Static assets required for SPA
 	publicPrefixes := []string{"/assets/"}
 	for _, prefix := range publicPrefixes {
@@ -133,7 +135,7 @@ func isPublicPath(path string) bool {
 			return true
 		}
 	}
-	
+
 	// Public files (from frontend/dist/)
 	// NOTE: This list should be kept in sync with the frontend build output.
 	// These are root-level files that don't fall under /assets/ but are needed
@@ -144,7 +146,7 @@ func isPublicPath(path string) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -208,12 +207,8 @@ func (s *TerminalSession) AddClient(client WebSocketClient) error {
 	}
 
 	// Send SIGWINCH to trigger redraw for applications like htop
-	if s.cmd != nil && s.cmd.Process != nil {
-		if err := s.cmd.Process.Signal(syscall.SIGWINCH); err != nil {
-			// Log but don't fail - process may have already exited
-			log.Printf("Warning: failed to send SIGWINCH: %v", err)
-		}
-	}
+	// Platform-specific: Unix systems send SIGWINCH, Windows is a no-op
+	sendSignalToProcess(s.cmd)
 
 	return nil
 }

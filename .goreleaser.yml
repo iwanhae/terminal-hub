@@ -1,0 +1,115 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+env:
+  - GO111MODULE=on
+
+project_name: terminal-hub
+
+before:
+  hooks:
+    # Clean previous build artifacts
+    - sh -c "rm -rf dist/ frontend/dist"
+
+    # Install and build React frontend
+    - sh -c "cd frontend && npm ci && npm run build"
+
+    # Verify Go modules
+    - sh -c "go mod tidy"
+    - sh -c "go mod verify"
+
+builds:
+  - id: terminal-hub
+    main: .
+    binary: terminal-hub
+    builder: go
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64  # Windows ARM64 not commonly used
+    ldflags:
+      # Strip debug info and reduce binary size
+      - -s -w
+      # Embed version information
+      - -X main.Version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+      - -X main.builtBy=goreleaser
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - formats: ['tar.gz']
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README.md
+      - CLAUDE.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+release:
+  # Create as draft for review
+  draft: true
+  prerelease: false
+  mode: keep-existing
+  header: |
+    # Terminal Hub v{{ .Version }}
+
+    A web-based terminal application providing browser-based access to shell sessions.
+  footer: |
+    ## Installation
+
+    Download the binary for your platform from the assets below.
+
+    ## Verification
+
+    Verify the integrity of downloaded files using the provided checksums:
+    ```bash
+    sha256sum -c terminal-hub_{{ .Version }}_checksums.txt
+    ```
+
+    ## Quick Start
+
+    ```bash
+    # Linux/macOS
+    ./terminal-hub
+
+    # Windows
+    ./terminal-hub.exe
+    ```
+
+    Access the terminal at http://localhost:8081
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+  groups:
+    - title: Features
+      regexp: "^feat:"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix:"
+      order: 1
+    - title: Refactoring
+      regexp: "^refactor:"
+      order: 2
+    - title: Documentation
+      regexp: "^docs:"
+      order: 3
