@@ -634,20 +634,31 @@ func main() {
 	})
 
 	// Serve the embedded React frontend with SPA fallback
-	http.HandleFunc("/", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve the requested file
-		path := r.URL.Path
-
-		// Check if the file exists in the embedded filesystem
-		if _, err := embeddedFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Allow /login route to bypass authentication for SPA
+		if r.URL.Path == "/login" {
+			// Serve index.html for React SPA routing
+			r.URL.Path = "/"
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
-		// If not found, serve index.html for SPA routing
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	}, sessionAuthManager))
+		// Apply authentication middleware for all other routes
+		sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			// Try to serve the requested file
+			path := r.URL.Path
+
+			// Check if the file exists in the embedded filesystem
+			if _, err := embeddedFS.Open(strings.TrimPrefix(path, "/")); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+
+			// If not found, serve index.html for SPA routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+		}, sessionAuthManager)(w, r)
+	})
 
 	// REST API routes
 	http.HandleFunc("/api/sessions", sessionAuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
