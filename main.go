@@ -115,6 +115,36 @@ func sessionAuthMiddleware(next http.HandlerFunc, sm *auth.SessionManager) http.
 	}
 }
 
+// isPublicPath checks if a path should bypass authentication
+// This includes the login page and static assets needed for the SPA
+func isPublicPath(path string) bool {
+	// Trim trailing slashes for consistent comparison
+	trimmedPath := strings.TrimSuffix(path, "/")
+	
+	// Login page (client-side React route)
+	if trimmedPath == "/login" {
+		return true
+	}
+	
+	// Static assets required for SPA
+	publicPrefixes := []string{"/assets/"}
+	for _, prefix := range publicPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	
+	// Public files
+	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg"}
+	for _, file := range publicFiles {
+		if path == file {
+			return true
+		}
+	}
+	
+	return false
+}
+
 // isAPIRequest checks if request is for API/WebSocket
 func isAPIRequest(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/api/") ||
@@ -635,17 +665,14 @@ func main() {
 
 	// Serve the embedded React frontend with SPA fallback
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Allow /login route and static assets to bypass authentication for SPA
+		// Check if this is a public path that should bypass authentication
 		// This is safe because:
 		// 1. Static assets (JS, CSS) don't contain sensitive data
 		// 2. The SPA needs these files to render the login page
 		// 3. Actual data protection happens at the API level
-		path := strings.TrimSuffix(r.URL.Path, "/")
-		if path == "/login" || strings.HasPrefix(r.URL.Path, "/assets/") || 
-		   r.URL.Path == "/manifest.webmanifest" || r.URL.Path == "/sw.js" ||
-		   r.URL.Path == "/vite.svg" || r.URL.Path == "/terminal-hub-icon.svg" {
-			// For /login route, serve index.html
-			if path == "/login" {
+		if isPublicPath(r.URL.Path) {
+			// For /login route, serve index.html for React SPA routing
+			if strings.TrimSuffix(r.URL.Path, "/") == "/login" {
 				r.URL.Path = "/"
 			}
 			fileServer.ServeHTTP(w, r)
