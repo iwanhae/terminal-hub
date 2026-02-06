@@ -268,6 +268,22 @@ See [CLAUDE.md](CLAUDE.md) for detailed development documentation including:
 
 - `WS /ws/:sessionId` - Connect to a terminal session
 
+## Changelog
+
+### v1.0.1 (2026-02-06)
+
+**Bug Fixes:**
+- Fixed authentication status API to correctly return `authenticated: true` when authentication is not configured. Users were incorrectly redirected to the login page when running in open mode (without `TERMINAL_HUB_USERNAME` and `TERMINAL_HUB_PASSWORD` set).
+
+### v1.0.0 (2026-02-06)
+
+**Initial Release:**
+- Multi-session terminal support via WebSocket
+- Cookie-based authentication with session management
+- RESTful API for session management
+- File download support via OSC escape sequences
+- Embedded React frontend with xterm.js
+
 ## License
 
 [Add your license here]
