@@ -17,7 +17,7 @@ A web-based terminal application that provides browser-based access to shell ses
 
 **Linux/macOS:**
 ```bash
-curl -sL "https://github.com/iwanhae/terminal-hub/releases/latest/download/terminal-hub_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" | tar xz && ./terminal-hub
+curl -sL "https://github.com/iwanhae/terminal-hub/releases/latest/download/terminal-hub_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/').tar.gz" | tar xz && ./terminal-hub
 ```
 
 **Windows (PowerShell):**
