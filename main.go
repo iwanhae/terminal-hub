@@ -101,7 +101,7 @@ func sessionAuthMiddleware(next http.HandlerFunc, sm *auth.SessionManager) http.
 				MaxAge:   -1,
 				HttpOnly: true,
 				Secure:   isSecure(r),
-				SameSite: http.SameSiteStrictMode,
+				SameSite: http.SameSiteLaxMode,
 				Path:     "/",
 			})
 
@@ -137,10 +137,10 @@ func isPublicPath(path string) bool {
 	}
 
 	// Public files (from frontend/dist/)
-	// NOTE: This list should be kept in sync with the frontend build output.
+	// NOTE: This list should be kept in sync with frontend build output.
 	// These are root-level files that don't fall under /assets/ but are needed
 	// for PWA support (manifest, service worker) and branding (icons).
-	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg"}
+	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg", "/terminal-hub-icon-180.png", "/terminal-hub-icon-192.png", "/terminal-hub-icon-512.png"}
 	for _, file := range publicFiles {
 		if path == file {
 			return true
@@ -201,7 +201,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager
 		Expires:  time.Now().Add(24 * time.Hour),
 		HttpOnly: true,
 		Secure:   isSecure(r),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 
@@ -231,7 +231,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request, sm *auth.SessionManage
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   isSecure(r),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 
