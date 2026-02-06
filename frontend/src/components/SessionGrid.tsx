@@ -84,7 +84,7 @@ export default function SessionGrid() {
             <span className="text-emerald-300 font-medium">Tip</span>
             <span>Press</span>
             <kbd className="px-2 py-1 bg-zinc-900/80 rounded border border-zinc-700 font-mono text-xs">
-              Cmd+K
+              Cmd/Ctrl+K
             </kbd>
             <span>to create one</span>
           </div>

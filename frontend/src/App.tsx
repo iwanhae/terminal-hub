@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthProvider";
 import { SessionProvider } from "./contexts/SessionContext";
@@ -9,6 +10,18 @@ import LoginPage from "./pages/LoginPage";
 import { Toaster } from "react-hot-toast";
 
 function App() {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("create-session-shortcut"));
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <Router>
       <AuthProvider>
