@@ -13,10 +13,40 @@ A web-based terminal application that provides browser-based access to shell ses
 
 ## Quick Start
 
+### One-Liner (Download & Run)
+
+**Linux/macOS:**
+```bash
+curl -sL "https://github.com/iwanhae/terminal-hub/releases/latest/download/terminal-hub_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" | tar xz && ./terminal-hub
+```
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/iwanhae/terminal-hub/releases/latest/download/terminal-hub_windows_amd64.zip" -OutFile "terminal-hub.zip"; Expand-Archive -Path "terminal-hub.zip" -DestinationPath .; .\terminal-hub.exe
+```
+
+**Note:** This automatically detects your OS and architecture, downloads the latest release, and runs it. Access the terminal at http://localhost:8081.
+
 ### Using Docker
 
 ```bash
 docker run -p 8081:8081 iwanhae/terminal-hub
+```
+
+### From Source
+
+```bash
+# Clone repository
+git clone https://github.com/iwanhae/terminal-hub.git
+cd terminal-hub
+
+# Build the application
+make build
+
+# Run the server
+./build/terminal-hub
+
+# Access the terminal at http://localhost:8081
 ```
 
 ### From Source
