@@ -19,7 +19,7 @@ function App() {
             element={
               <ProtectedRoute>
                 <SessionProvider>
-                  <div className="flex min-h-screen min-h-[100dvh] overflow-hidden bg-zinc-950 text-zinc-200 font-sans">
+                  <div className="flex min-h-screen min-h-[100dvh] overflow-hidden bg-transparent text-zinc-100 font-sans">
                     <Sidebar
                       containerClassName="hidden md:flex"
                       onNavigate={() => {}}

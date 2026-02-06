@@ -1,13 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: dark;
+  color: #e4e4e7;
+  background-color: #050505;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -15,10 +19,64 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(
+      circle at 20% 20%,
+      rgba(16, 185, 129, 0.12),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 80% 0%,
+      rgba(14, 165, 233, 0.18),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 80% 70%,
+      rgba(234, 179, 8, 0.08),
+      transparent 45%
+    ),
+    linear-gradient(
+      120deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.01) 30%,
+      rgba(255, 255, 255, 0.02) 60%,
+      rgba(255, 255, 255, 0.01) 100%
+    );
+  opacity: 0.9;
+  pointer-events: none;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
   min-height: 100dvh;
+  position: relative;
   @apply bg-zinc-950 text-zinc-200;
+}
+
+.fade-up {
+  animation: fade-up 0.6s ease both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.font-mono,
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
 }

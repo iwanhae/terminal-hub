@@ -79,7 +79,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         macOptionIsMeta: true,
         scrollback: 1000,
         fontSize: 14,
-        fontFamily: "monospace",
+        fontFamily:
+          "JetBrains Mono, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
         theme: theme,
         allowProposedApi: true,
       });

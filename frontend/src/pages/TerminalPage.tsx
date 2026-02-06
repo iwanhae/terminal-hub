@@ -88,7 +88,7 @@ export default function TerminalPage() {
             type="button"
             className={`px-2 py-1 rounded-md border transition-colors ${
               ctrlActive
-                ? "bg-indigo-600 text-white border-indigo-500"
+                ? "bg-emerald-600 text-white border-emerald-500"
                 : "bg-zinc-950 text-zinc-200 border-zinc-800"
             }`}
             data-testid="extra-key-ctrl"
@@ -176,7 +176,7 @@ export default function TerminalPage() {
             </button>
             <button
               type="button"
-              className="px-2 py-1 rounded-md bg-indigo-600 text-white border border-indigo-500"
+              className="px-2 py-1 rounded-md bg-emerald-600 text-white border border-emerald-500"
               data-testid="paste-enter"
               onClick={() => {
                 void paste(true);
@@ -187,13 +187,16 @@ export default function TerminalPage() {
           </div>
         )}
 
-        <button
-          type="button"
-          className="w-full mt-1 px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
-          onClick={() => setIsKeyboardExpanded((v) => !v)}
-        >
-          {isKeyboardExpanded ? "▼ Less" : "▶ More"}
-        </button>
+        <div className="mt-1 flex items-center gap-2">
+          <button
+            type="button"
+            className="flex-1 px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
+            onClick={() => setIsKeyboardExpanded((v) => !v)}
+          >
+            {isKeyboardExpanded ? "▼ Less" : "▶ More"}
+          </button>
+          <div id="mobile-fab-dock" className="relative flex-shrink-0" />
+        </div>
       </div>
     </div>
   );
