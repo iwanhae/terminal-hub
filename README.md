@@ -54,6 +54,22 @@ make build
 ### From Source
 
 ```bash
+# Clone repository
+git clone https://github.com/iwanhae/terminal-hub.git
+cd terminal-hub
+
+# Build the application
+make build
+
+# Run the server
+./build/terminal-hub
+
+# Access the terminal at http://localhost:8081
+```
+
+### From Source
+
+```bash
 # Clone the repository
 git clone https://github.com/iwanhae/terminal-hub.git
 cd terminal-hub
