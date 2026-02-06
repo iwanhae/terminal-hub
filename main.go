@@ -246,6 +246,16 @@ func handleAuthStatus(w http.ResponseWriter, r *http.Request, sm *auth.SessionMa
 		return
 	}
 
+	// If authentication is not configured, allow access without a session
+	if !sm.IsConfigured() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": true,
+			"username":      "",
+		})
+		return
+	}
+
 	cookie, err := r.Cookie("session_token")
 	authenticated := false
 	username := ""
