@@ -32,7 +32,9 @@ function SessionListItem({
 }: SessionListItemProps) {
   return (
     <div
-      className={`flex items-center gap-1 p-2 rounded-md transition-all group ${
+      className={`flex items-center p-2 rounded-md transition-all group ${
+        collapsed ? "gap-0" : "gap-1"
+      } ${
         isActive
           ? "bg-zinc-800 shadow-sm ring-1 ring-zinc-700"
           : "hover:bg-zinc-800/50"
@@ -43,9 +45,9 @@ function SessionListItem({
           onNavigate(session.id);
           onCloseMenu?.();
         }}
-        className={`flex-1 flex items-center gap-3 text-left transition-all ${
-          isActive ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
-        }`}
+        className={`flex-1 flex items-center text-left transition-all ${
+          collapsed ? "justify-center gap-0" : "gap-3"
+        } ${isActive ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
         title={session.metadata.name}
         data-testid="session-nav-item"
         data-session-id={session.id}
@@ -345,7 +347,11 @@ export default function Sidebar({
         className={`hidden md:flex flex-col h-[100dvh] min-h-screen bg-zinc-900/70 backdrop-blur-xl border-r border-zinc-800/80 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} ${containerClassName}`}
       >
         {/* Header */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-800">
+        <div
+          className={`h-14 flex items-center border-b border-zinc-800 ${
+            collapsed ? "justify-center px-0" : "justify-between px-4"
+          }`}
+        >
           {!collapsed && (
             <h3 className="font-semibold text-zinc-100 tracking-tight">
               Terminal Hub
@@ -415,11 +421,15 @@ export default function Sidebar({
         <div className="p-3 border-t border-zinc-800 space-y-1">
           <button
             onClick={handleNavigateToDashboard}
-            className={`w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${location.pathname === "/" ? "bg-zinc-800 text-zinc-100" : ""}`}
+            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${
+              collapsed ? "justify-center gap-0 px-0" : "gap-3"
+            } ${location.pathname === "/" ? "bg-zinc-800 text-zinc-100" : ""}`}
             title="Dashboard"
             data-testid="dashboard-nav-item"
           >
-            <span className="text-lg">☖</span>
+            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
+              ☖
+            </span>
             {!collapsed && (
               <span className="text-sm font-medium">Dashboard</span>
             )}
@@ -428,10 +438,14 @@ export default function Sidebar({
             onClick={() => {
               void logout();
             }}
-            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors ${
+              collapsed ? "justify-center gap-0 px-0" : "gap-3"
+            }`}
             title="Logout"
           >
-            <span className="text-lg">⏻</span>
+            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
+              ⏻
+            </span>
             {!collapsed && <span className="text-sm font-medium">Logout</span>}
           </button>
         </div>
