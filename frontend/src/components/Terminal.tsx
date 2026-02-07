@@ -233,9 +233,11 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
           sendResize(ws);
 
-          // If reconnecting, trigger TUI refresh for apps like htop
+          // Always trigger TUI refresh for apps like htop, vim, etc.
+          triggerTUIRefresh(ws);
+
+          // Show success message only when reconnecting
           if (wasReconnecting) {
-            triggerTUIRefresh(ws);
             toast.success("Reconnected to terminal", {
               id: "reconnect-toast",
               duration: 2000,
