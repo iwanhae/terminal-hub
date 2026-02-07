@@ -397,7 +397,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       sendInputRef.current = sendInput;
 
-      terminal.onData(sendInput);
+      terminal.onData((data) => sendInputRef.current(data));
 
       // Container resize handling with ResizeObserver
       let resizeTimeout: number;
