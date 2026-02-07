@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
 import { useAuth } from "../hooks/useAuth";
@@ -169,21 +168,18 @@ function MobileFab({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [fabOpen, setFabOpen]);
 
-  const dockEl =
-    dockToKeyBar && typeof document !== "undefined"
-      ? document.getElementById("mobile-fab-dock")
-      : null;
-
-  const wrapperClassName = dockEl
-    ? "md:hidden relative"
+  // When docked to key bar (terminal page), use inline rendering
+  // When floating (dashboard), use fixed positioning
+  const wrapperClassName = dockToKeyBar
+    ? "md:hidden relative inline-flex"
     : "md:hidden fixed bottom-6 right-6 z-50";
-  const menuClassName = dockEl
+  const menuClassName = dockToKeyBar
     ? "absolute bottom-full right-0 mb-3 w-72"
     : "absolute bottom-20 right-0 w-72";
-  const fabSizeClass = dockEl ? "w-10 h-10" : "w-14 h-14";
-  const iconSizeClass = dockEl ? "w-4 h-4" : "w-6 h-6";
+  const fabSizeClass = dockToKeyBar ? "w-10 h-10" : "w-14 h-14";
+  const iconSizeClass = dockToKeyBar ? "w-4 h-4" : "w-6 h-6";
 
-  const content = (
+  return (
     <div className={wrapperClassName}>
       <div ref={fabRef}>
         <button
@@ -316,13 +312,9 @@ function MobileFab({
       </div>
     </div>
   );
-
-  if (dockEl) {
-    return createPortal(content, dockEl);
-  }
-
-  return content;
 }
+
+export { MobileFab };
 
 export default function Sidebar({
   containerClassName = "",
@@ -513,20 +505,23 @@ export default function Sidebar({
         </div>
       </div>
 
-      <MobileFab
-        fabOpen={fabOpen}
-        setFabOpen={setFabOpen}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        filteredSessions={filteredSessions}
-        currentSessionId={currentSessionId}
-        onNavigate={handleNavigate}
-        onNavigateToDashboard={handleNavigateToDashboard}
-        onRename={setRenameSessionId}
-        onDelete={handleDeleteSession}
-        onCreateSession={() => setShowCreateDialog(true)}
-        dockToKeyBar={dockFabToKeyBar}
-      />
+      {/* Only render floating FAB on dashboard (not on terminal pages) */}
+      {!dockFabToKeyBar && (
+        <MobileFab
+          fabOpen={fabOpen}
+          setFabOpen={setFabOpen}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          filteredSessions={filteredSessions}
+          currentSessionId={currentSessionId}
+          onNavigate={handleNavigate}
+          onNavigateToDashboard={handleNavigateToDashboard}
+          onRename={setRenameSessionId}
+          onDelete={handleDeleteSession}
+          onCreateSession={() => setShowCreateDialog(true)}
+          dockToKeyBar={false}
+        />
+      )}
 
       {showCreateDialog && (
         <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
