@@ -161,6 +161,15 @@ export default function TerminalPage() {
           >
             →
           </button>
+          {!isKeyboardExpanded && (
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
+              onClick={() => setIsKeyboardExpanded(true)}
+            >
+              ▶ More
+            </button>
+          )}
         </div>
 
         {isKeyboardExpanded && (
@@ -209,17 +218,17 @@ export default function TerminalPage() {
             >
               Paste+Enter
             </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
+              onClick={() => setIsKeyboardExpanded(false)}
+            >
+              ▼ Less
+            </button>
           </div>
         )}
 
-        <div className="mt-1 flex items-center gap-2">
-          <button
-            type="button"
-            className="flex-1 px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 text-xs border border-zinc-700"
-            onClick={() => setIsKeyboardExpanded((v) => !v)}
-          >
-            {isKeyboardExpanded ? "▼ Less" : "▶ More"}
-          </button>
+        <div className="mt-1 flex justify-end">
           <div id="mobile-fab-dock" className="relative flex-shrink-0" />
         </div>
       </div>
