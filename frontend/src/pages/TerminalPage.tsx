@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import TerminalComponent, { type TerminalHandle } from "../components/Terminal";
-import { MobileFab } from "../components/Sidebar";
-import { useSessions } from "../contexts/useSessions";
-import CreateSessionDialog from "../components/CreateSessionDialog";
-import RenameSessionDialog from "../components/RenameSessionDialog";
 
 export default function TerminalPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const terminalRef = useRef<TerminalHandle>(null);
-  const { sessions, deleteSession } = useSessions();
   const [ctrlActive, setCtrlActive] = useState(false);
   const [isKeyboardExpanded, setIsKeyboardExpanded] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [fabOpen, setFabOpen] = useState(false);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
 
   const trimmedSessionId =
     typeof sessionId === "string" ? sessionId.trim() : "";
@@ -65,52 +56,6 @@ export default function TerminalPage() {
       terminalRef.current?.focus();
     },
     [send],
-  );
-
-  const filteredSessions = sessions.filter((session) =>
-    session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  const handleNavigate = useCallback(
-    (navigateSessionId: string) => {
-      const result = navigate(`/session/${navigateSessionId}`);
-      if (result instanceof Promise) {
-        result.catch((error: Error) => {
-          console.error(error);
-        });
-      }
-    },
-    [navigate],
-  );
-
-  const handleNavigateToDashboard = useCallback(() => {
-    const result = navigate("/");
-    if (result instanceof Promise) {
-      result.catch((error: Error) => {
-        console.error(error);
-      });
-    }
-  }, [navigate]);
-
-  const handleDeleteSession = useCallback(
-    (deleteSessionId: string, sessionName: string) => {
-      if (
-        !confirm(`Are you sure you want to delete session "${sessionName}"?`)
-      ) {
-        return;
-      }
-
-      deleteSession(deleteSessionId)
-        .then(() => {
-          if (deleteSessionId === trimmedSessionId) {
-            handleNavigateToDashboard();
-          }
-        })
-        .catch((error: Error) => {
-          console.error(error);
-        });
-    },
-    [deleteSession, trimmedSessionId, handleNavigateToDashboard],
   );
 
   if (trimmedSessionId === "") return null;
@@ -226,21 +171,22 @@ export default function TerminalPage() {
             </button>
           )}
 
-          {/* FAB integrated directly into keystrokes row */}
-          <MobileFab
-            fabOpen={fabOpen}
-            setFabOpen={setFabOpen}
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            filteredSessions={filteredSessions}
-            currentSessionId={trimmedSessionId}
-            onNavigate={handleNavigate}
-            onNavigateToDashboard={handleNavigateToDashboard}
-            onRename={setRenameSessionId}
-            onDelete={handleDeleteSession}
-            onCreateSession={() => setShowCreateDialog(true)}
-            dockToKeyBar={true}
-          />
+          {/* Dashboard button for navigation */}
+          <button
+            type="button"
+            className="px-3 py-1 rounded-md bg-zinc-800 text-zinc-300 text-sm border border-zinc-700"
+            onClick={() => {
+              const result = navigate("/");
+              if (result instanceof Promise) {
+                result.catch((error: Error) => {
+                  console.error(error);
+                });
+              }
+            }}
+            data-testid="back-to-dashboard"
+          >
+            ☖ Dashboard
+          </button>
         </div>
 
         {isKeyboardExpanded && (
@@ -299,21 +245,6 @@ export default function TerminalPage() {
           </div>
         )}
       </div>
-
-      {/* Dialogs for FAB functionality */}
-      {showCreateDialog && (
-        <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
-      )}
-
-      {renameSessionId != null && (
-        <RenameSessionDialog
-          sessionId={renameSessionId}
-          currentName={
-            sessions.find((s) => s.id === renameSessionId)?.metadata.name ?? ""
-          }
-          onClose={() => setRenameSessionId(null)}
-        />
-      )}
     </div>
   );
 }
