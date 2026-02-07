@@ -34,6 +34,23 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const sendInputRef = useRef<(data: string) => void>(() => {});
 
+    // Touch state tracking for scroll handling
+    const touchStateRef = useRef<{
+      isTracking: boolean;
+      startX: number;
+      startY: number;
+      lastY: number;
+      startTime: number;
+      isScroll: boolean;
+    }>({
+      isTracking: false,
+      startX: 0,
+      startY: 0,
+      lastY: 0,
+      startTime: 0,
+      isScroll: false,
+    });
+
     // Reconnection state refs
     const reconnectAttemptsRef = useRef<number>(0);
     const reconnectTimeoutRef = useRef<number | null>(null);
@@ -104,6 +121,78 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       terminalInstanceRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
+      // Capture terminalRef for cleanup (stable reference)
+      const terminalDomNode = terminalRef.current;
+
+      // Touch event handlers for scroll support
+      const handleTouchStart = (e: TouchEvent) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        touchStateRef.current = {
+          isTracking: true,
+          startX: touch.pageX,
+          startY: touch.pageY,
+          lastY: touch.pageY,
+          startTime: Date.now(),
+          isScroll: false,
+        };
+      };
+
+      const handleTouchMove = (e: TouchEvent) => {
+        if (!touchStateRef.current.isTracking || e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+        const deltaY = touch.pageY - touchStateRef.current.lastY;
+        const totalDeltaY = touch.pageY - touchStateRef.current.startY;
+
+        // 30px threshold to determine if scrolling
+        if (!touchStateRef.current.isScroll && Math.abs(totalDeltaY) > 30) {
+          touchStateRef.current.isScroll = true;
+        }
+
+        if (touchStateRef.current.isScroll) {
+          e.preventDefault();
+          const lineHeight = 20; // fontSize 14 + line height
+          const linesToScroll = Math.round(deltaY / lineHeight);
+          if (linesToScroll !== 0) {
+            terminalInstanceRef.current?.scrollLines(-linesToScroll);
+            touchStateRef.current.lastY = touch.pageY;
+          }
+        }
+      };
+
+      const handleTouchEnd = (e: TouchEvent) => {
+        if (!touchStateRef.current.isTracking) return;
+
+        const { startX, startY, startTime, isScroll } = touchStateRef.current;
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+
+        // Quick tap focuses terminal
+        if (!isScroll && duration < 300 && e.changedTouches.length > 0) {
+          const touch = e.changedTouches[0];
+          const deltaX = Math.abs(touch.pageX - startX);
+          const deltaY = Math.abs(touch.pageY - startY);
+          if (deltaX < 10 && deltaY < 10) {
+            terminalInstanceRef.current?.focus();
+          }
+        }
+
+        touchStateRef.current.isTracking = false;
+      };
+
+      // Register touch event listeners
+      if (terminalDomNode != null) {
+        terminalDomNode.addEventListener("touchstart", handleTouchStart, {
+          passive: false,
+        });
+        terminalDomNode.addEventListener("touchmove", handleTouchMove, {
+          passive: false,
+        });
+        terminalDomNode.addEventListener("touchend", handleTouchEnd);
+        terminalDomNode.addEventListener("touchcancel", handleTouchEnd);
+      }
+
       if (window.innerWidth < 768) {
         setTimeout(() => terminal.focus(), 200);
       }
@@ -140,7 +229,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         const fitAddon = fitAddonRef.current;
         const terminal = terminalInstanceRef.current;
 
-        if (!fitAddon || !terminal || !ws) return;
+        if (fitAddon == null || terminal == null) return;
 
         const dims = fitAddon.proposeDimensions();
         if (!dims || dims.cols < 2 || dims.rows < 2) return;
@@ -430,6 +519,14 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         // Prevent reconnection attempts after unmount
         isManuallyClosedRef.current = true;
 
+        // Remove touch event listeners
+        if (terminalDomNode != null) {
+          terminalDomNode.removeEventListener("touchstart", handleTouchStart);
+          terminalDomNode.removeEventListener("touchmove", handleTouchMove);
+          terminalDomNode.removeEventListener("touchend", handleTouchEnd);
+          terminalDomNode.removeEventListener("touchcancel", handleTouchEnd);
+        }
+
         // Clear any pending reconnection timeout
         if (reconnectTimeoutRef.current !== null) {
           clearTimeout(reconnectTimeoutRef.current);
@@ -450,6 +547,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       <div
         ref={wrapperRef}
         className="w-full h-full relative min-w-0 min-h-0"
+        style={{ touchAction: "none" }}
         data-testid="terminal-surface"
         onPointerDown={() => focus()}
       >
