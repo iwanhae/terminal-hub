@@ -64,7 +64,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Static assets: cache-first.
-  if (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg") {
+  if (url.pathname.startsWith("/assets/")) {
     event.respondWith(
       caches.match(request).then((cached) =>
         cached ||

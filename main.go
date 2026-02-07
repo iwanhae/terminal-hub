@@ -140,7 +140,7 @@ func isPublicPath(path string) bool {
 	// NOTE: This list should be kept in sync with frontend build output.
 	// These are root-level files that don't fall under /assets/ but are needed
 	// for PWA support (manifest, service worker) and branding (icons).
-	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/vite.svg", "/terminal-hub-icon.svg", "/terminal-hub-icon-180.png", "/terminal-hub-icon-192.png", "/terminal-hub-icon-512.png"}
+	publicFiles := []string{"/manifest.webmanifest", "/sw.js", "/terminal-hub-icon.svg", "/terminal-hub-icon-180.png", "/terminal-hub-icon-192.png", "/terminal-hub-icon-512.png"}
 	for _, file := range publicFiles {
 		if path == file {
 			return true
