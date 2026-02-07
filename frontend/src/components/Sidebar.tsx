@@ -19,6 +19,7 @@ type SessionListItemProps = Readonly<{
   collapsed: boolean;
   onNavigate: (id: string) => void;
   onRename: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
   onCloseMenu?: () => void;
 }>;
 
@@ -28,6 +29,7 @@ function SessionListItem({
   collapsed,
   onNavigate,
   onRename,
+  onDelete,
   onCloseMenu,
 }: SessionListItemProps) {
   return (
@@ -62,33 +64,57 @@ function SessionListItem({
             </div>
           </div>
         )}
-        {isActive && !collapsed && (
-          <div className="w-1 h-4 bg-emerald-400 rounded-full" />
-        )}
       </button>
       {!collapsed && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRename(session.id);
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-all"
-          title="Rename session"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRename(session.id);
+            }}
+            className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-all"
+            title="Rename session"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-            />
-          </svg>
-        </button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(session.id, session.metadata.name);
+            }}
+            className="p-1 rounded hover:bg-red-900/30 text-zinc-500 hover:text-red-400 transition-all"
+            title="Delete session"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+      {isActive && !collapsed && (
+        <div className="w-1 h-4 bg-emerald-400 rounded-full" />
       )}
     </div>
   );
@@ -104,6 +130,7 @@ type MobileFabProps = Readonly<{
   onNavigate: (id: string) => void;
   onNavigateToDashboard: () => void;
   onRename: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
   onCreateSession: () => void;
   dockToKeyBar: boolean;
 }>;
@@ -118,6 +145,7 @@ function MobileFab({
   onNavigate,
   onNavigateToDashboard,
   onRename,
+  onDelete,
   onCreateSession,
   dockToKeyBar,
 }: MobileFabProps) {
@@ -193,9 +221,16 @@ function MobileFab({
         }`}
       >
         <div className="h-12 flex items-center justify-between px-4 border-b border-zinc-800">
-          <h3 className="font-semibold text-zinc-100 tracking-tight text-sm">
+          <button
+            onClick={() => {
+              onNavigateToDashboard();
+              setFabOpen(false);
+            }}
+            className="font-semibold text-zinc-100 tracking-tight text-sm hover:text-emerald-300 transition-colors"
+            title="Go to Dashboard"
+          >
             Terminal Hub
-          </h3>
+          </button>
           <button
             onClick={() => setFabOpen(false)}
             className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -258,6 +293,7 @@ function MobileFab({
                 collapsed={false}
                 onNavigate={onNavigate}
                 onRename={onRename}
+                onDelete={onDelete}
                 onCloseMenu={() => setFabOpen(false)}
               />
             ))
@@ -293,7 +329,7 @@ export default function Sidebar({
   onNavigate,
   testId,
 }: SidebarProps) {
-  const { sessions } = useSessions();
+  const { sessions, deleteSession } = useSessions();
   const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -340,6 +376,27 @@ export default function Sidebar({
     }
   };
 
+  const handleDeleteSession = (sessionId: string, sessionName: string) => {
+    if (!confirm(`Are you sure you want to delete session "${sessionName}"?`)) {
+      return;
+    }
+
+    deleteSession(sessionId)
+      .then(() => {
+        if (sessionId !== currentSessionId) return;
+        const result = navigate("/");
+        onNavigate?.();
+        if (result instanceof Promise) {
+          result.catch((error: Error) => {
+            console.error(error);
+          });
+        }
+      })
+      .catch((error: Error) => {
+        console.error(error);
+      });
+  };
+
   return (
     <>
       <div
@@ -353,9 +410,13 @@ export default function Sidebar({
           }`}
         >
           {!collapsed && (
-            <h3 className="font-semibold text-zinc-100 tracking-tight">
+            <button
+              onClick={handleNavigateToDashboard}
+              className="font-semibold text-zinc-100 tracking-tight hover:text-emerald-300 transition-colors"
+              title="Go to Dashboard"
+            >
               Terminal Hub
-            </h3>
+            </button>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}
@@ -413,6 +474,7 @@ export default function Sidebar({
                   collapsed={collapsed}
                   onNavigate={handleNavigate}
                   onRename={setRenameSessionId}
+                  onDelete={handleDeleteSession}
                 />
               ))}
         </div>
@@ -461,6 +523,7 @@ export default function Sidebar({
         onNavigate={handleNavigate}
         onNavigateToDashboard={handleNavigateToDashboard}
         onRename={setRenameSessionId}
+        onDelete={handleDeleteSession}
         onCreateSession={() => setShowCreateDialog(true)}
         dockToKeyBar={dockFabToKeyBar}
       />

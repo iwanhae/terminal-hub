@@ -277,6 +277,22 @@ func handleAuthStatus(w http.ResponseWriter, r *http.Request, sm *auth.SessionMa
 // InitSessionManager initializes the global session manager
 func InitSessionManager() error {
 	sessionManager = terminal.NewSessionManager()
+
+	return createInitialSession("default")
+}
+
+func createInitialSession(name string) error {
+	config := terminal.SessionConfig{
+		ID:          uuid.New().String(),
+		Name:        name,
+		HistorySize: 4096,
+	}
+
+	if _, err := sessionManager.CreateSession(config); err != nil {
+		return err
+	}
+
+	log.Printf("Created initial session: %q", name)
 	return nil
 }
 
