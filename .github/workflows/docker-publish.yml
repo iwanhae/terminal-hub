@@ -8,10 +8,7 @@ name: Docker
 on:
   push:
     branches: [ "main" ]
-    # Publish semver tags as releases.
-    tags: [ 'v*.*.*' ]
-  pull_request:
-    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -34,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
@@ -61,11 +60,33 @@ jobs:
 
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
+      - name: Check if pushed tag is latest semver tag
+        id: latest_tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "is_latest=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          latest="$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)"
+          if [[ "${GITHUB_REF_NAME}" == "${latest}" ]]; then
+            echo "is_latest=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "is_latest=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && steps.latest_tag.outputs.is_latest == 'true' }}
+            type=semver,pattern=v{{major}},value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern=v{{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern=v{{version}},value=${{ github.ref_name }},enable=${{ github.ref_type == 'tag' }}
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
