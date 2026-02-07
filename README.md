@@ -5,6 +5,7 @@ A web-based terminal application that provides browser-based access to shell ses
 ## Features
 
 - **Multi-session support**: Create and manage multiple terminal sessions
+- **Default session on startup**: A `default` session is created automatically at server start
 - **WebSocket-based**: Real-time terminal I/O using xterm.js
 - **RESTful API**: Manage sessions via HTTP endpoints
 - **Browser-based**: Access terminals from any modern web browser
@@ -27,50 +28,18 @@ Expand-Archive -Path "terminal-hub.zip" -DestinationPath .
 .\terminal-hub.exe
 ```
 
-**Note:** This automatically detects your OS and architecture, downloads the latest release, and runs it. Access the terminal at http://localhost:8081.
+**Note:** This command detects your OS/architecture, downloads the release version embedded in the URL, and runs it. Access the terminal at http://localhost:8081.
 
 ### Using Docker
 
 ```bash
-docker run -p 8081:8081 iwanhae/terminal-hub
+docker run -p 8081:8081 ghcr.io/iwanhae/terminal-hub:latest
 ```
 
 ### From Source
 
 ```bash
 # Clone repository
-git clone https://github.com/iwanhae/terminal-hub.git
-cd terminal-hub
-
-# Build the application
-make build
-
-# Run the server
-./build/terminal-hub
-
-# Access the terminal at http://localhost:8081
-```
-
-### From Source
-
-```bash
-# Clone repository
-git clone https://github.com/iwanhae/terminal-hub.git
-cd terminal-hub
-
-# Build the application
-make build
-
-# Run the server
-./build/terminal-hub
-
-# Access the terminal at http://localhost:8081
-```
-
-### From Source
-
-```bash
-# Clone the repository
 git clone https://github.com/iwanhae/terminal-hub.git
 cd terminal-hub
 
@@ -117,14 +86,14 @@ export TERMINAL_HUB_SESSION_TTL=12h
 docker run -p 8081:8081 \
   -e TERMINAL_HUB_USERNAME=admin \
   -e TERMINAL_HUB_PASSWORD=your-secure-password \
-  iwanhae/terminal-hub
+  ghcr.io/iwanhae/terminal-hub:latest
 ```
 
 **Using docker-compose:**
 ```yaml
 services:
   terminal-hub:
-    image: iwanhae/terminal-hub
+    image: ghcr.io/iwanhae/terminal-hub:latest
     ports:
       - "8081:8081"
     environment:
