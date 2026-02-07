@@ -66,7 +66,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
 
 # AI tools
-RUN bash -c "source $HOME/.nvm/nvm.sh && npm install -g @charmland/crush"
+RUN bash -c "source $HOME/.nvm/nvm.sh && npm install -g @charmland/crush @openai/codex @google/gemini-cli"
 RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN curl -fsSL https://opencode.ai/install | bash
 
