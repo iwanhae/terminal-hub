@@ -36,6 +36,59 @@ Expand-Archive -Path "terminal-hub.zip" -DestinationPath .
 docker run -p 8081:8081 ghcr.io/iwanhae/terminal-hub:latest
 ```
 
+### Docker Persistence Guide
+
+Terminal Hub Docker image is designed to persist data via the container user's `HOME` directory (`/home/ubuntu`).
+Mount a volume to `/home/ubuntu` to keep files, tool installations, and shell config across container recreation.
+
+**Recommended (named volume):**
+```bash
+docker volume create terminal-hub-home
+
+docker run -d --name terminal-hub \
+  -p 8081:8081 \
+  -v terminal-hub-home:/home/ubuntu \
+  ghcr.io/iwanhae/terminal-hub:latest
+```
+
+**Bind mount (host directory):**
+```bash
+mkdir -p ./terminal-hub-home
+
+docker run -d --name terminal-hub \
+  -p 8081:8081 \
+  -v "$(pwd)/terminal-hub-home:/home/ubuntu" \
+  ghcr.io/iwanhae/terminal-hub:latest
+```
+
+**docker-compose example:**
+```yaml
+services:
+  terminal-hub:
+    image: ghcr.io/iwanhae/terminal-hub:latest
+    ports:
+      - "8081:8081"
+    volumes:
+      - terminal-hub-home:/home/ubuntu
+
+volumes:
+  terminal-hub-home:
+```
+
+**Important notes:**
+1. Persisted: files under `/home/ubuntu` (shell profile, git config, downloaded files, user-installed tools).
+2. Not persisted: in-memory terminal sessions themselves (session processes end when container/app stops).
+3. First run initializes the volume from image defaults. If you need re-initialization, remove `/home/ubuntu/.terminal-hub-initialized` inside the volume and restart with care.
+4. If no volume is mounted, data is ephemeral and lost when the container is removed.
+5. If you have any suggestion on default supported tools, PR is welcomed.
+
+**PATH tip (`${HOME}/.local/bin`):**
+The image includes `${HOME}/.local/bin` in `PATH`. If you want binaries to be available permanently across restarts, place them in:
+```bash
+/home/ubuntu/.local/bin
+```
+This works best with a persistent `/home/ubuntu` volume.
+
 ### From Source
 
 ```bash
