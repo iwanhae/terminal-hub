@@ -31,6 +31,13 @@ export interface UpdateSessionRequest {
   name: string;
 }
 
+import type {
+  CronJob,
+  CronJobExecution,
+  CreateCronJobRequest,
+  UpdateCronJobRequest,
+} from "./cronApi";
+
 const API_BASE_URL = "/api";
 
 // API service functions
@@ -97,6 +104,119 @@ export const api = {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to update session: ${errorText}`);
+    }
+  },
+
+  // === Cron Job API ===
+
+  // List all cron jobs
+  async listCronJobs(): Promise<CronJob[]> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to list cron jobs: ${response.statusText}`);
+    }
+    return response.json() as Promise<CronJob[]>;
+  },
+
+  // Create a new cron job
+  async createCronJob(request: CreateCronJobRequest): Promise<CronJob> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create cron job: ${errorText}`);
+    }
+
+    return response.json() as Promise<CronJob>;
+  },
+
+  // Update a cron job
+  async updateCronJob(
+    jobId: string,
+    request: UpdateCronJobRequest,
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs/${jobId}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to update cron job: ${errorText}`);
+    }
+  },
+
+  // Delete a cron job
+  async deleteCronJob(jobId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs/${jobId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to delete cron job: ${errorText}`);
+    }
+  },
+
+  // List cron job execution history
+  async listCronHistory(
+    jobId: string,
+    limit?: number,
+  ): Promise<CronJobExecution[]> {
+    const limitParam = limit == null ? "" : `?limit=${limit}`;
+    const response = await fetch(
+      `${API_BASE_URL}/cron/jobs/${jobId}/history${limitParam}`,
+      {
+        credentials: "include",
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to list cron history: ${response.statusText}`);
+    }
+    return response.json() as Promise<CronJobExecution[]>;
+  },
+
+  // Trigger a cron job immediately
+  async triggerCronJob(jobId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs/${jobId}/trigger`, {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to trigger cron job: ${errorText}`);
+    }
+  },
+
+  // Toggle a cron job (enable/disable)
+  async toggleCronJob(jobId: string, enabled: boolean): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/cron/jobs/${jobId}/toggle`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ enabled }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to toggle cron job: ${errorText}`);
     }
   },
 };

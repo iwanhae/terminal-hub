@@ -422,6 +422,36 @@ export default function Sidebar({
         {/* Search & Actions */}
         <div className="p-3 space-y-2">
           {!collapsed && (
+            <button
+              onClick={() => {
+                const result = navigate("/cron");
+                onNavigate?.();
+                if (result instanceof Promise) {
+                  result.catch((error: Error) => {
+                    console.error(error);
+                  });
+                }
+              }}
+              className="w-full flex items-center gap-2 p-2 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+              title="Cron Jobs"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m1 1V4a2 2 0 012-2 2 2.83L6.83 9.17l-4.17-4.17a3 3 0 010-6 6l4.17 4.17M12 7v4a3 3 0 01-3 2.83L9.17 16.83l-4.17-4.17a3 3 0 016-6zm0 0h4v4h-4v-4h4"
+                />
+              </svg>
+              <span className="text-sm font-medium">Cron Jobs</span>
+            </button>
+          )}
+          {!collapsed && (
             <div className="relative">
               <input
                 type="text"
@@ -438,7 +468,19 @@ export default function Sidebar({
             title="Create Session (Cmd/Ctrl+K)"
             data-testid="create-session"
           >
-            <span className="text-lg leading-none">+</span>
+            <svg
+              className={`text-white ${collapsed ? "w-4 h-4" : "w-5 h-5"}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 5v14M5 12h14"
+              />
+            </svg>
             {!collapsed && (
               <span className="text-sm font-medium">New Session</span>
             )}
