@@ -62,6 +62,7 @@ func (c *WebSocketClientImpl) Close() error {
 }
 
 var sessionManager *terminal.SessionManager
+var cronManager *terminal.CronManager
 
 // -- WebSocket --
 
@@ -535,6 +536,216 @@ func sanitizeFilename(name string) string {
 	return reg.ReplaceAllString(name, "")
 }
 
+// -- Cron API Handlers --
+
+// handleCrons handles GET /api/crons (list) and POST /api/crons (create)
+func handleCrons(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		jobs, err := cronManager.List()
+		if err != nil {
+			log.Printf("Error listing cron jobs: %v", err)
+			http.Error(w, "Failed to list jobs", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(terminal.ListCronsResponse{Jobs: jobs}); err != nil {
+			log.Printf("Error encoding cron jobs: %v", err)
+		}
+
+	case http.MethodPost:
+		var req terminal.CreateCronRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("Error decoding request: %v", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		// Validate request
+		if req.Name == "" {
+			http.Error(w, "Name is required", http.StatusBadRequest)
+			return
+		}
+		if req.Schedule == "" {
+			http.Error(w, "Schedule is required", http.StatusBadRequest)
+			return
+		}
+		if req.Command == "" {
+			http.Error(w, "Command is required", http.StatusBadRequest)
+			return
+		}
+
+		job, err := cronManager.Create(req)
+		if err != nil {
+			log.Printf("Error creating cron job: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(terminal.CreateCronResponse{ID: job.ID, Job: *job}); err != nil {
+			log.Printf("Error encoding response: %v", err)
+		}
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCronByID handles operations on specific cron jobs
+func handleCronByID(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from path
+	// URL format: /api/crons/:id or /api/crons/:id/action
+	path := strings.TrimPrefix(r.URL.Path, "/api/crons/")
+	parts := strings.SplitN(path, "/", 2)
+	jobID := parts[0]
+
+	if jobID == "" {
+		http.Error(w, "Job ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check for action endpoints
+	if len(parts) > 1 {
+		action := parts[1]
+		switch action {
+		case "run":
+			handleCronRunNow(w, r, jobID)
+			return
+		case "history":
+			handleCronHistory(w, r, jobID)
+			return
+		case "enable":
+			handleCronEnable(w, r, jobID)
+			return
+		case "disable":
+			handleCronDisable(w, r, jobID)
+			return
+		}
+	}
+
+	// No action, handle direct job operations (GET, PUT, DELETE)
+	switch r.Method {
+	case http.MethodGet:
+		job, err := cronManager.Get(jobID)
+		if err != nil {
+			log.Printf("Error getting cron job: %v", err)
+			http.Error(w, "Job not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(job); err != nil {
+			log.Printf("Error encoding job: %v", err)
+		}
+
+	case http.MethodPut:
+		var req terminal.UpdateCronRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("Error decoding request: %v", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		job, err := cronManager.Update(jobID, req)
+		if err != nil {
+			log.Printf("Error updating cron job: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(job); err != nil {
+			log.Printf("Error encoding response: %v", err)
+		}
+
+	case http.MethodDelete:
+		if err := cronManager.Delete(jobID); err != nil {
+			log.Printf("Error deleting cron job: %v", err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCronRunNow handles POST /api/crons/:id/run
+func handleCronRunNow(w http.ResponseWriter, r *http.Request, jobID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	result, err := cronManager.RunNow(jobID)
+	if err != nil {
+		log.Printf("Error running cron job: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
+// handleCronHistory handles GET /api/crons/:id/history
+func handleCronHistory(w http.ResponseWriter, r *http.Request, jobID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	history, err := cronManager.GetHistory(jobID)
+	if err != nil {
+		log.Printf("Error getting cron history: %v", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(terminal.GetHistoryResponse{Executions: history}); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
+// handleCronEnable handles POST /api/crons/:id/enable
+func handleCronEnable(w http.ResponseWriter, r *http.Request, jobID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := cronManager.Enable(jobID); err != nil {
+		log.Printf("Error enabling cron job: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCronDisable handles POST /api/crons/:id/disable
+func handleCronDisable(w http.ResponseWriter, r *http.Request, jobID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := cronManager.Disable(jobID); err != nil {
+		log.Printf("Error disabling cron job: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Extract session ID from URL path
 	// URL format: /ws/:sessionId
@@ -674,6 +885,28 @@ func main() {
 		log.Fatal("Failed to initialize session manager:", err)
 	}
 
+	// Initialize CronManager if enabled
+	if terminal.IsCronEnabledFromEnv() {
+		cronFile := terminal.GetCronFilePathFromEnv()
+		maxHistory := terminal.GetHistorySizeFromEnv()
+
+		var err error
+		cronManager, err = terminal.NewCronManager(cronFile, maxHistory)
+		if err != nil {
+			log.Fatal("Failed to initialize cron manager:", err)
+		}
+
+		// Start the scheduler
+		if err := cronManager.Start(); err != nil {
+			log.Fatal("Failed to start cron scheduler:", err)
+		}
+
+		log.Printf("Cron feature enabled (file: %s, max history: %d)", cronFile, maxHistory)
+		defer cronManager.Stop()
+	} else {
+		log.Printf("Cron feature disabled via TERMINAL_HUB_CRON_ENABLED")
+	}
+
 	// Create a filesystem from the embedded dist files
 	embeddedFS, err := fs.Sub(dist.StaticFS, ".")
 	if err != nil {
@@ -756,6 +989,15 @@ func main() {
 
 	// File download endpoint (session-independent)
 	http.HandleFunc("/api/download", sessionAuthMiddleware(handleFileDownload, sessionAuthManager))
+
+	// Cron API routes (only if cron is enabled)
+	if cronManager != nil {
+		// Handle /api/crons (GET list, POST create)
+		http.HandleFunc("/api/crons", sessionAuthMiddleware(handleCrons, sessionAuthManager))
+
+		// Handle /api/crons/:id (GET, PUT, DELETE) and /api/crons/:id/* (actions)
+		http.HandleFunc("/api/crons/", sessionAuthMiddleware(handleCronByID, sessionAuthManager))
+	}
 
 	// WebSocket route - handle /ws/:sessionId
 	http.HandleFunc("/ws/", sessionAuthMiddleware(handleWebSocket, sessionAuthManager))
