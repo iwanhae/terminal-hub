@@ -858,11 +858,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var addr = flag.String("addr", ":8081", "http service address")
+	var passwordFile = flag.String("password-file", "", "path to password file (default: ~/.terminal-hub/credentials.json)")
 	flag.Parse()
-
-	// Load authentication credentials from environment
-	username := os.Getenv("TERMINAL_HUB_USERNAME")
-	password := os.Getenv("TERMINAL_HUB_PASSWORD")
 
 	// Session TTL (default 24h)
 	sessionTTL := 24 * time.Hour
@@ -872,13 +869,46 @@ func main() {
 		}
 	}
 
-	// Initialize session manager
-	sessionAuthManager := auth.NewSessionManager(username, password, sessionTTL)
+	// Initialize session manager with authentication
+	// Priority: environment variables > password file
+	var sessionAuthManager *auth.SessionManager
+	username := os.Getenv("TERMINAL_HUB_USERNAME")
+	password := os.Getenv("TERMINAL_HUB_PASSWORD")
 
-	if sessionAuthManager.IsConfigured() {
-		log.Printf("Cookie-based authentication enabled")
+	if username != "" && password != "" {
+		// Environment variables take priority
+		sessionAuthManager = auth.NewSessionManager(username, password, sessionTTL)
+		log.Printf("Cookie-based authentication enabled (source: environment variables)")
+	} else if *passwordFile != "" || os.Getenv("TERMINAL_HUB_PASSWORD_FILE") != "" {
+		// Use password file
+		filePath := *passwordFile
+		if filePath == "" {
+			filePath = os.Getenv("TERMINAL_HUB_PASSWORD_FILE")
+		}
+
+		usernameHash, passwordHash, err := auth.LoadCredentials(filePath)
+		if err != nil {
+			log.Fatalf("Failed to load password file: %v", err)
+		}
+
+		sessionAuthManager = auth.NewSessionManagerFromHash(usernameHash, passwordHash, sessionTTL)
+		log.Printf("Cookie-based authentication enabled (source: password file: %s)", filePath)
 	} else {
-		log.Printf("WARNING: No authentication configured")
+		// Try default password file location
+		defaultPath, err := auth.DefaultPasswordFilePath()
+		if err == nil {
+			if usernameHash, passwordHash, err := auth.LoadCredentials(defaultPath); err == nil {
+				sessionAuthManager = auth.NewSessionManagerFromHash(usernameHash, passwordHash, sessionTTL)
+				log.Printf("Cookie-based authentication enabled (source: password file: %s)", defaultPath)
+			} else {
+				// No default password file, run without auth
+				sessionAuthManager = auth.NewSessionManager("", "", sessionTTL)
+				log.Printf("WARNING: No authentication configured")
+			}
+		} else {
+			sessionAuthManager = auth.NewSessionManager("", "", sessionTTL)
+			log.Printf("WARNING: No authentication configured")
+		}
 	}
 
 	if err := InitSessionManager(); err != nil {
