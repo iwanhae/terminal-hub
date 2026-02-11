@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -36,7 +35,7 @@ func (e *CronExecutor) Execute(job *CronJob) (*CronExecutionResult, error) {
 	select {
 	case e.semaphore <- struct{}{}:
 		defer func() { <-e.semaphore }()
-	case <-time.After(30 * time.Second):
+	case <-time.After(e.config.ExecutionTimeout):
 		return nil, fmt.Errorf("timeout waiting for execution slot (too many concurrent jobs)")
 	}
 
@@ -254,7 +253,7 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 	select {
 	case e.semaphore <- struct{}{}:
 		defer func() { <-e.semaphore }()
-	case <-time.After(30 * time.Second):
+	case <-time.After(e.config.ExecutionTimeout):
 		return nil, fmt.Errorf("timeout waiting for execution slot (too many concurrent jobs)")
 	}
 
@@ -292,8 +291,8 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 	}
 	defer ptyFile.Close()
 
-	// Write the command to the PTY
-	command := job.Command + "\n"
+	// Write the command followed by exit to the PTY
+	command := job.Command + "\nexit\n"
 	if _, err := ptyFile.Write([]byte(command)); err != nil {
 		cmd.Process.Kill()
 		finishedAt := time.Now()
@@ -308,43 +307,45 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 		}, nil
 	}
 
-	// Read output from PTY with timeout
+	// Read output from PTY in a goroutine (PTY fds don't support SetReadDeadline)
 	output := make([]byte, 0, e.config.MaxOutputSize)
-	buffer := make([]byte, 1024)
-	deadline := time.After(e.config.ExecutionTimeout)
-
-readLoop:
-	for {
-		select {
-		case <-deadline:
-			// Timeout
-			cmd.Process.Kill()
-			break readLoop
-		case <-ctx.Done():
-			// Context cancelled
-			cmd.Process.Kill()
-			break readLoop
-		default:
-			// Set read deadline to avoid blocking forever
-			ptyFile.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buffer := make([]byte, 1024)
+		for {
 			n, err := ptyFile.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					break readLoop
+			if n > 0 {
+				output = append(output, buffer[:n]...)
+				if len(output) >= e.config.MaxOutputSize {
+					return
 				}
-				// Continue on other errors (timeout, etc.)
-				continue
 			}
-			output = append(output, buffer[:n]...)
-			if len(output) >= e.config.MaxOutputSize {
-				// Truncate if exceeds max size
-				break readLoop
+			if err != nil {
+				return
 			}
 		}
+	}()
+
+	// Wait for process exit or timeout
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+	}()
+
+	var waitErr error
+	select {
+	case waitErr = <-waitDone:
+		// Process exited; close PTY to unblock reader, then wait for it
+		ptyFile.Close()
+		<-readDone
+	case <-ctx.Done():
+		cmd.Process.Kill()
+		ptyFile.Close()
+		<-readDone
+		waitErr = <-waitDone
 	}
 
-	// Wait for command to complete
-	err = cmd.Wait()
 	finishedAt := time.Now()
 
 	// Truncate output if needed
@@ -355,8 +356,8 @@ readLoop:
 
 	// Determine exit code
 	exitCode := 0
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+	if waitErr != nil {
+		if exitError, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
 		} else {
 			exitCode = -1

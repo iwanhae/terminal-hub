@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../contexts/useSessions";
+import { useCrons } from "../contexts/useCrons";
 import { useAuth } from "../hooks/useAuth";
 import CreateSessionDialog from "./CreateSessionDialog";
 import RenameSessionDialog from "./RenameSessionDialog";
@@ -125,9 +126,11 @@ type MobileFabProps = Readonly<{
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   filteredSessions: SessionInfo[];
+  cronCount: number;
   currentSessionId: string | null;
   onNavigate: (id: string) => void;
   onNavigateToDashboard: () => void;
+  onNavigateToCrons: () => void;
   onRename: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   onCreateSession: () => void;
@@ -140,9 +143,11 @@ function MobileFab({
   searchQuery,
   setSearchQuery,
   filteredSessions,
+  cronCount,
   currentSessionId,
   onNavigate,
   onNavigateToDashboard,
+  onNavigateToCrons,
   onRename,
   onDelete,
   onCreateSession,
@@ -296,7 +301,25 @@ function MobileFab({
           )}
         </div>
 
-        <div className="p-3 border-t border-zinc-800">
+        <div className="p-3 border-t border-zinc-800 space-y-1">
+          <button
+            onClick={() => {
+              onNavigateToCrons();
+              setFabOpen(false);
+            }}
+            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            title="Cron Jobs"
+          >
+            <span className="text-lg">⏰</span>
+            <span className="text-sm font-medium flex-1 text-left">
+              Cron Jobs
+            </span>
+            {cronCount > 0 && (
+              <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+                {cronCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => {
               onNavigateToDashboard();
@@ -322,6 +345,7 @@ export default function Sidebar({
   testId,
 }: SidebarProps) {
   const { sessions, deleteSession } = useSessions();
+  const { crons } = useCrons();
   const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -360,6 +384,16 @@ export default function Sidebar({
 
   const handleNavigateToDashboard = () => {
     const result = navigate("/");
+    onNavigate?.();
+    if (result instanceof Promise) {
+      result.catch((error: Error) => {
+        console.error(error);
+      });
+    }
+  };
+
+  const handleNavigateToCrons = () => {
+    const result = navigate("/crons");
     onNavigate?.();
     if (result instanceof Promise) {
       result.catch((error: Error) => {
@@ -469,6 +503,35 @@ export default function Sidebar({
                   onDelete={handleDeleteSession}
                 />
               ))}
+
+          {/* Cron Jobs Section */}
+          {!collapsed && (
+            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-2 mt-4">
+              Cron Jobs
+            </div>
+          )}
+          <button
+            onClick={handleNavigateToCrons}
+            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${
+              collapsed ? "justify-center gap-0 px-0" : "gap-3"
+            } ${location.pathname === "/crons" ? "bg-zinc-800 text-zinc-100" : ""}`}
+            title="Cron Jobs"
+            data-testid="crons-nav-item"
+          >
+            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
+              ⏰
+            </span>
+            {!collapsed && (
+              <span className="text-sm font-medium flex-1 text-left">
+                Cron Jobs
+              </span>
+            )}
+            {!collapsed && crons.length > 0 && (
+              <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+                {crons.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Footer */}
@@ -513,9 +576,11 @@ export default function Sidebar({
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           filteredSessions={filteredSessions}
+          cronCount={crons.length}
           currentSessionId={currentSessionId}
           onNavigate={handleNavigate}
           onNavigateToDashboard={handleNavigateToDashboard}
+          onNavigateToCrons={handleNavigateToCrons}
           onRename={setRenameSessionId}
           onDelete={handleDeleteSession}
           onCreateSession={() => setShowCreateDialog(true)}

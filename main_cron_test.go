@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/terminal-hub/terminal"
+	"github.com/iwanhae/terminal-hub/terminal"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -153,16 +153,12 @@ var _ = Describe("Cron HTTP Handlers", func() {
 		})
 
 		It("should create job with optional fields", func() {
-			wd := "/tmp"
-			shell := "/bin/sh"
-			desc := "test description"
 			body := `{
 				"name": "Full Job",
 				"schedule": "* * * * *",
 				"command": "echo test",
 				"working_directory": "/tmp",
 				"shell": "/bin/sh",
-				"description": "test description",
 				"enabled": false
 			}`
 
@@ -177,7 +173,6 @@ var _ = Describe("Cron HTTP Handlers", func() {
 
 			Expect(result.Job.WorkingDirectory).To(Equal("/tmp"))
 			Expect(result.Job.Shell).To(Equal("/bin/sh"))
-			Expect(result.Job.Description).To(Equal("test description"))
 			Expect(result.Job.Enabled).To(BeFalse())
 		})
 
@@ -280,10 +275,9 @@ var _ = Describe("Cron HTTP Handlers", func() {
 
 		It("should return all job fields", func() {
 			job, _ := cronManager.Create(terminal.CreateCronRequest{
-				Name:        "Full Fields",
-				Schedule:    "0 * * * *",
-				Command:     "echo full",
-				Description: strPtr("test description"),
+				Name:     "Full Fields",
+				Schedule: "0 * * * *",
+				Command:  "echo full",
 			})
 
 			resp, _ := http.Get(testServer.URL + "/api/crons/" + job.ID)
@@ -291,7 +285,8 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			json.NewDecoder(resp.Body).Decode(&result)
 
 			Expect(result.Name).To(Equal("Full Fields"))
-			Expect(result.Description).To(Equal("test description"))
+			Expect(result.Schedule).To(Equal("0 * * * *"))
+			Expect(result.Command).To(Equal("echo full"))
 		})
 
 		It("should reject methods other than GET", func() {
@@ -513,12 +508,9 @@ var _ = Describe("Cron HTTP Handlers", func() {
 		})
 
 		It("should update job metadata", func() {
-			http.NewRequest("POST", testServer.URL+"/api/crons/"+job.ID+"/run", nil)
-			resp, _ := http.DefaultClient.Do(http.DefaultClient.Do(http.NewRequest("POST", testServer.URL+"/api/crons/"+job.ID+"/run", nil)).Request)
+			req, _ := http.NewRequest("POST", testServer.URL+"/api/crons/"+job.ID+"/run", nil)
+			resp, _ := http.DefaultClient.Do(req)
 			_ = resp
-
-			// Give time for execution
-			// In real test, would wait for async completion
 
 			reloaded, _ := cronManager.Get(job.ID)
 			Expect(reloaded.Metadata.TotalRuns).To(Equal(1))
@@ -581,7 +573,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			json.NewDecoder(resp.Body).Decode(&result)
 
 			if len(result.Executions) > 0 {
-				Expect(result.Executions[0].Timestamp).ToNot(Equal(int64(0)))
+				Expect(result.Executions[0].StartedAt).ToNot(Equal(int64(0)))
 				Expect(result.Executions[0].ExitCode).To(Equal(0))
 			}
 		})
@@ -771,7 +763,3 @@ var _ = Describe("Cron HTTP Handlers", func() {
 	})
 })
 
-// Helper function
-func strPtr(s string) *string {
-	return &s
-}

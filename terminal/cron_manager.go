@@ -41,7 +41,7 @@ func NewCronManager(filePath string, maxHistory int) (*CronManager, error) {
 	}
 
 	manager := &CronManager{
-		cron:       cron.New(cron.WithSeconds()),
+		cron:       cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.SecondOptional))),
 		jobs:       make(map[string]*CronJob),
 		jobsByID:   make(map[cron.EntryID]*CronJob),
 		executions: make([]CronExecutionResult, 0, maxHistory),
@@ -76,7 +76,9 @@ func (m *CronManager) load() error {
 
 	var cronData CronData
 	if err := json.Unmarshal(data, &cronData); err != nil {
-		return err
+		// Corrupt or partial JSON — start fresh
+		log.Printf("[Cron] Warning: corrupt data in %s, starting fresh: %v", m.filePath, err)
+		return nil
 	}
 
 	// Load jobs
@@ -93,10 +95,9 @@ func (m *CronManager) load() error {
 	return nil
 }
 
-// save writes current state to JSON file atomically
+// save writes current state to JSON file atomically.
+// Must be called with m.mu already held (Lock or RLock).
 func (m *CronManager) save() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 
 	jobs := make([]CronJob, 0, len(m.jobs))
 	for _, job := range m.jobs {
@@ -207,11 +208,16 @@ func (m *CronManager) scheduleJob(job *CronJob) error {
 	return m.scheduleJobLocked(job)
 }
 
-// unscheduleJob removes a job from the scheduler
+// unscheduleJob removes a job from the scheduler (acquires lock)
 func (m *CronManager) unscheduleJob(jobID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.unscheduleJobLocked(jobID)
+}
 
+// unscheduleJobLocked removes a job from the scheduler.
+// Must be called with m.mu already held.
+func (m *CronManager) unscheduleJobLocked(jobID string) {
 	job, ok := m.jobs[jobID]
 	if !ok {
 		return
@@ -328,8 +334,12 @@ func (m *CronManager) Create(req CreateCronRequest) (*CronJob, error) {
 	jobID := "cron_" + uuid.New().String()
 	now := time.Now()
 
-	// Calculate next run time
-	nextRun, _ := GetNextRunTime(req.Schedule, now)
+	// Calculate next run time (only for enabled jobs)
+	var nextRunUnix int64
+	if req.Enabled {
+		nextRun, _ := GetNextRunTime(req.Schedule, now)
+		nextRunUnix = nextRun.Unix()
+	}
 
 	job := &CronJob{
 		ID:               jobID,
@@ -344,7 +354,7 @@ func (m *CronManager) Create(req CreateCronRequest) (*CronJob, error) {
 			CreatedAt:      now.Unix(),
 			UpdatedAt:      now.Unix(),
 			LastRunAt:      0,
-			NextRunAt:      nextRun.Unix(),
+			NextRunAt:      nextRunUnix,
 			LastRunStatus:  "",
 			LastRunOutput:  "",
 			LastRunError:   "",
@@ -370,7 +380,7 @@ func (m *CronManager) Create(req CreateCronRequest) (*CronJob, error) {
 		// Rollback on save failure
 		delete(m.jobs, jobID)
 		if req.Enabled {
-			m.unscheduleJob(jobID)
+			m.unscheduleJobLocked(jobID)
 		}
 		return nil, fmt.Errorf("failed to save job: %w", err)
 	}
@@ -419,7 +429,7 @@ func (m *CronManager) Update(id string, req UpdateCronRequest) (*CronJob, error)
 	}
 
 	// Unschedule first
-	m.unscheduleJob(id)
+	m.unscheduleJobLocked(id)
 
 	// Update fields
 	if req.Name != nil {
@@ -485,7 +495,7 @@ func (m *CronManager) Delete(id string) error {
 	}
 
 	// Unschedule
-	m.unscheduleJob(id)
+	m.unscheduleJobLocked(id)
 
 	// Remove from map
 	delete(m.jobs, id)
@@ -551,7 +561,7 @@ func (m *CronManager) Disable(id string) error {
 	job.Metadata.UpdatedAt = time.Now().Unix()
 	job.Metadata.NextRunAt = 0
 
-	m.unscheduleJob(id)
+	m.unscheduleJobLocked(id)
 
 	if err := m.save(); err != nil {
 		return fmt.Errorf("failed to save: %w", err)

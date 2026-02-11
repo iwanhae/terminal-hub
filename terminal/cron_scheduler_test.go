@@ -1,17 +1,11 @@
 package terminal
 
 import (
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-func TestCronScheduler(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "CronScheduler Suite")
-}
 
 var _ = Describe("CronScheduler", func() {
 

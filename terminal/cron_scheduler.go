@@ -15,7 +15,7 @@ func ValidateSchedule(schedule string) error {
 
 	// Parse the schedule using robfig/cron
 	// We support both 5-field (minute hour day month weekday) and 6-field (with seconds) formats
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Second)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.SecondOptional)
 
 	_, err := parser.Parse(schedule)
 	if err != nil {
@@ -32,7 +32,7 @@ func GetNextRunTime(schedule string, fromTime time.Time) (time.Time, error) {
 	}
 
 	// Parse the schedule
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Second)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.SecondOptional)
 
 	scheduleParser, err := parser.Parse(schedule)
 	if err != nil {
@@ -55,7 +55,7 @@ func CalculateNextRunTimes(schedule string, fromTime time.Time, count int) ([]ti
 		return []time.Time{}, nil
 	}
 
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Second)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.SecondOptional)
 
 	scheduleParser, err := parser.Parse(schedule)
 	if err != nil {

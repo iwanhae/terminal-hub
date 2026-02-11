@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -21,11 +20,6 @@ func ptr(s string) *string {
 // Helper function to create pointer to bool
 func boolPtr(b bool) *bool {
 	return &b
-}
-
-func TestCronManager(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "CronManager Suite")
 }
 
 var _ = Describe("CronManager", func() {

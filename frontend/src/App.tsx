@@ -2,10 +2,12 @@ import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthProvider";
 import { SessionProvider } from "./contexts/SessionContext";
+import { CronProvider } from "./contexts/CronContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import Sidebar from "./components/Sidebar";
 import SessionGrid from "./components/SessionGrid";
 import TerminalPage from "./pages/TerminalPage";
+import CronPage from "./pages/CronPage";
 import LoginPage from "./pages/LoginPage";
 import { Toaster } from "react-hot-toast";
 
@@ -31,23 +33,26 @@ function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <SessionProvider>
-                  <div className="flex min-h-screen min-h-[100dvh] overflow-hidden bg-transparent text-zinc-100 font-sans">
-                    <Sidebar
-                      containerClassName="hidden md:flex"
-                      onNavigate={() => {}}
-                    />
-                    <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-                      <Routes>
-                        <Route path="/" element={<SessionGrid />} />
-                        <Route
-                          path="/session/:sessionId"
-                          element={<TerminalPage />}
-                        />
-                      </Routes>
-                    </main>
-                  </div>
-                </SessionProvider>
+                <CronProvider>
+                  <SessionProvider>
+                    <div className="flex min-h-screen min-h-[100dvh] overflow-hidden bg-transparent text-zinc-100 font-sans">
+                      <Sidebar
+                        containerClassName="hidden md:flex"
+                        onNavigate={() => {}}
+                      />
+                      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+                        <Routes>
+                          <Route path="/" element={<SessionGrid />} />
+                          <Route
+                            path="/session/:sessionId"
+                            element={<TerminalPage />}
+                          />
+                          <Route path="/crons" element={<CronPage />} />
+                        </Routes>
+                      </main>
+                    </div>
+                  </SessionProvider>
+                </CronProvider>
               </ProtectedRoute>
             }
           />
