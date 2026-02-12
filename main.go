@@ -538,6 +538,11 @@ func sanitizeFilename(name string) string {
 
 // -- Cron API Handlers --
 
+// isNotFoundError checks if an error indicates a resource was not found
+func isNotFoundError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not found")
+}
+
 // handleCrons handles GET /api/crons (list) and POST /api/crons (create)
 func handleCrons(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -652,7 +657,11 @@ func handleCronByID(w http.ResponseWriter, r *http.Request) {
 		job, err := cronManager.Update(jobID, req)
 		if err != nil {
 			log.Printf("Error updating cron job: %v", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			if isNotFoundError(err) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+			} else {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
 			return
 		}
 
@@ -684,7 +693,11 @@ func handleCronRunNow(w http.ResponseWriter, r *http.Request, jobID string) {
 	result, err := cronManager.RunNow(jobID)
 	if err != nil {
 		log.Printf("Error running cron job: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if isNotFoundError(err) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -723,7 +736,11 @@ func handleCronEnable(w http.ResponseWriter, r *http.Request, jobID string) {
 
 	if err := cronManager.Enable(jobID); err != nil {
 		log.Printf("Error enabling cron job: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if isNotFoundError(err) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -739,7 +756,11 @@ func handleCronDisable(w http.ResponseWriter, r *http.Request, jobID string) {
 
 	if err := cronManager.Disable(jobID); err != nil {
 		log.Printf("Error disabling cron job: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if isNotFoundError(err) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -879,6 +900,13 @@ func main() {
 		// Environment variables take priority
 		sessionAuthManager = auth.NewSessionManager(username, password, sessionTTL)
 		log.Printf("Cookie-based authentication enabled (source: environment variables)")
+
+		// Auto-create credentials file at default location if it doesn't exist
+		if createdPath, err := auth.CreateCredentialsFile(username, password); err != nil {
+			log.Printf("Warning: failed to auto-create credentials file: %v", err)
+		} else if createdPath != "" {
+			log.Printf("Auto-created credentials file at: %s", createdPath)
+		}
 	} else if *passwordFile != "" || os.Getenv("TERMINAL_HUB_PASSWORD_FILE") != "" {
 		// Use password file
 		filePath := *passwordFile

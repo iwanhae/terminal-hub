@@ -524,7 +524,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			)
 
 			resp, _ := http.DefaultClient.Do(req)
-			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 		})
 
 		It("should reject non-POST methods", func() {
@@ -637,7 +637,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			Expect(resp2.StatusCode).To(Equal(http.StatusNoContent))
 		})
 
-		It("should return 400 for non-existent job", func() {
+		It("should return 404 for non-existent job", func() {
 			req, _ := http.NewRequest(
 				"POST",
 				testServer.URL+"/api/crons/non-existent/enable",
@@ -645,7 +645,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			)
 
 			resp, _ := http.DefaultClient.Do(req)
-			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 		})
 
 		It("should reject non-POST methods", func() {
@@ -701,7 +701,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			Expect(resp2.StatusCode).To(Equal(http.StatusNoContent))
 		})
 
-		It("should return 400 for non-existent job", func() {
+		It("should return 404 for non-existent job", func() {
 			req, _ := http.NewRequest(
 				"POST",
 				testServer.URL+"/api/crons/non-existent/disable",
@@ -709,7 +709,7 @@ var _ = Describe("Cron HTTP Handlers", func() {
 			)
 
 			resp, _ := http.DefaultClient.Do(req)
-			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 		})
 
 		It("should reject non-POST methods", func() {

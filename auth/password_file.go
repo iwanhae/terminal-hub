@@ -112,6 +112,12 @@ func LoadCredentials(filePath string) (username, passwordHash string, err error)
 
 // savePasswordFile atomically saves the password file
 func savePasswordFile(filePath string, pwFile *PasswordFile) error {
+	// Ensure directory exists with secure permissions
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create credentials directory: %w", err)
+	}
+
 	data, err := json.MarshalIndent(pwFile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal password file: %w", err)
@@ -146,6 +152,43 @@ func HashPassword(password string) (string, error) {
 		return "", fmt.Errorf("failed to hash password: %w", err)
 	}
 	return string(hash), nil
+}
+
+// CreateCredentialsFile creates a credentials file at the default location
+// with bcrypt-hashed password. Only creates if file doesn't exist.
+// Returns the path where file was created, or empty string if skipped.
+func CreateCredentialsFile(username, password string) (string, error) {
+	defaultPath, err := DefaultPasswordFilePath()
+	if err != nil {
+		return "", fmt.Errorf("failed to get default password file path: %w", err)
+	}
+
+	// Check if file already exists - don't overwrite
+	if _, err := os.Stat(defaultPath); err == nil {
+		return "", nil // File exists, skip
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to check for existing password file: %w", err)
+	}
+
+	// Hash the password
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Create the password file structure
+	pwFile := &PasswordFile{
+		Username:     username,
+		PasswordHash: passwordHash,
+		Version:      currentPasswordFileVersion,
+		UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if err := savePasswordFile(defaultPath, pwFile); err != nil {
+		return "", fmt.Errorf("failed to save password file: %w", err)
+	}
+
+	return defaultPath, nil
 }
 
 // DefaultPasswordFilePath returns the default path for the password file
