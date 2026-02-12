@@ -16,17 +16,52 @@ import (
 
 // CronExecutor handles the execution of cron jobs
 type CronExecutor struct {
-	config    CronExecutorConfig
-	semaphore chan struct{} // for concurrency control
-	mu        sync.Mutex
+	config         CronExecutorConfig
+	semaphore      chan struct{} // for concurrency control
+	mu             sync.Mutex
+	timeProvider   TimeProvider        // for testability
+	mockExecutor   *MockCommandExecutor // optional mock executor for tests
+	useMockExecutor bool                // flag to use mock executor
+}
+
+// CronExecutorOption is a functional option for configuring CronExecutor
+type CronExecutorOption func(*CronExecutor)
+
+// WithTimeProvider sets a custom time provider
+func WithTimeProvider(tp TimeProvider) CronExecutorOption {
+	return func(e *CronExecutor) {
+		e.timeProvider = tp
+	}
+}
+
+// WithMockExecutor enables mock command execution
+func WithMockExecutor(mock *MockCommandExecutor) CronExecutorOption {
+	return func(e *CronExecutor) {
+		e.mockExecutor = mock
+		e.useMockExecutor = true
+	}
 }
 
 // NewCronExecutor creates a new cron executor with the given configuration
 func NewCronExecutor(config CronExecutorConfig) *CronExecutor {
 	return &CronExecutor{
-		config:    config,
-		semaphore: make(chan struct{}, config.MaxConcurrent),
+		config:       config,
+		semaphore:    make(chan struct{}, config.MaxConcurrent),
+		timeProvider: DefaultTimeProvider,
 	}
+}
+
+// NewCronExecutorWithOptions creates a new cron executor with options
+func NewCronExecutorWithOptions(config CronExecutorConfig, opts ...CronExecutorOption) *CronExecutor {
+	e := &CronExecutor{
+		config:       config,
+		semaphore:    make(chan struct{}, config.MaxConcurrent),
+		timeProvider: DefaultTimeProvider,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Execute runs a cron job and returns the execution result
@@ -35,18 +70,23 @@ func (e *CronExecutor) Execute(job *CronJob) (*CronExecutionResult, error) {
 	select {
 	case e.semaphore <- struct{}{}:
 		defer func() { <-e.semaphore }()
-	case <-time.After(e.config.ExecutionTimeout):
+	case <-e.timeProvider.After(e.config.ExecutionTimeout):
 		return nil, fmt.Errorf("timeout waiting for execution slot (too many concurrent jobs)")
 	}
 
 	executionID := "exec_" + uuid.New().String()
-	startedAt := time.Now()
+	startedAt := e.timeProvider.Now()
 
 	log.Printf("[Cron] Starting execution %s for job %s (%s)", executionID, job.ID, job.Name)
 
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.ExecutionTimeout)
 	defer cancel()
+
+	// Use mock executor if enabled
+	if e.useMockExecutor && e.mockExecutor != nil {
+		return e.executeWithMock(ctx, job, executionID, startedAt)
+	}
 
 	// Prepare the command
 	cmd := e.buildCommand(ctx, job)
@@ -58,7 +98,7 @@ func (e *CronExecutor) Execute(job *CronJob) (*CronExecutionResult, error) {
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		finishedAt := time.Now()
+		finishedAt := e.timeProvider.Now()
 		return &CronExecutionResult{
 			JobID:       job.ID,
 			ExecutionID: executionID,
@@ -73,7 +113,7 @@ func (e *CronExecutor) Execute(job *CronJob) (*CronExecutionResult, error) {
 	// Wait for command to complete
 	err := cmd.Wait()
 
-	finishedAt := time.Now()
+	finishedAt := e.timeProvider.Now()
 	output := stdout.String()
 	errOutput := stderr.String()
 
@@ -116,6 +156,47 @@ func (e *CronExecutor) Execute(job *CronJob) (*CronExecutionResult, error) {
 
 	log.Printf("[Cron] Completed execution %s for job %s (exit code: %d, duration: %s)",
 		executionID, job.ID, exitCode, finishedAt.Sub(startedAt))
+
+	return result, nil
+}
+
+// executeWithMock runs the command using the mock executor
+func (e *CronExecutor) executeWithMock(ctx context.Context, job *CronJob, executionID string, startedAt time.Time) (*CronExecutionResult, error) {
+	stdout, stderr, exitCode, err := e.mockExecutor.Execute(ctx, job.Command, job.WorkingDirectory, job.EnvVars)
+
+	finishedAt := e.timeProvider.Now()
+	output := stdout
+	if stderr != "" {
+		if output != "" {
+			output += "\n" + stderr
+		} else {
+			output = stderr
+		}
+	}
+
+	// Truncate output if needed
+	if len(output) > e.config.MaxOutputSize {
+		output = output[:e.config.MaxOutputSize] + "\n... (output truncated)"
+	}
+
+	result := &CronExecutionResult{
+		JobID:       job.ID,
+		ExecutionID: executionID,
+		StartedAt:   startedAt.Unix(),
+		FinishedAt:  finishedAt.Unix(),
+		ExitCode:    exitCode,
+		Output:      output,
+	}
+
+	if err != nil {
+		result.Error = err.Error()
+		result.ExitCode = -1
+	} else if exitCode != 0 {
+		result.Error = fmt.Sprintf("Command exited with code %d", exitCode)
+	}
+
+	log.Printf("[Cron] Completed mock execution %s for job %s (exit code: %d)",
+		executionID, job.ID, exitCode)
 
 	return result, nil
 }
@@ -164,8 +245,8 @@ func (e *CronExecutor) ExecuteAsync(job *CronJob, callback func(*CronExecutionRe
 			result = &CronExecutionResult{
 				JobID:       job.ID,
 				ExecutionID: "exec_" + uuid.New().String(),
-				StartedAt:   time.Now().Unix(),
-				FinishedAt:  time.Now().Unix(),
+				StartedAt:   e.timeProvider.Now().Unix(),
+				FinishedAt:  e.timeProvider.Now().Unix(),
 				ExitCode:    -1,
 				Output:      "",
 				Error:       err.Error(),
@@ -195,7 +276,7 @@ func (e *CronExecutor) UpdateJobMetadata(job *CronJob, result *CronExecutionResu
 	}
 
 	job.Metadata.NextRunAt = nextRun.Unix()
-	job.Metadata.UpdatedAt = time.Now().Unix()
+	job.Metadata.UpdatedAt = e.timeProvider.Now().Unix()
 }
 
 // helper to get int from env
@@ -253,12 +334,12 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 	select {
 	case e.semaphore <- struct{}{}:
 		defer func() { <-e.semaphore }()
-	case <-time.After(e.config.ExecutionTimeout):
+	case <-e.timeProvider.After(e.config.ExecutionTimeout):
 		return nil, fmt.Errorf("timeout waiting for execution slot (too many concurrent jobs)")
 	}
 
 	executionID := "exec_" + uuid.New().String()
-	startedAt := time.Now()
+	startedAt := e.timeProvider.Now()
 
 	log.Printf("[Cron] Starting PTY execution %s for job %s (%s)", executionID, job.ID, job.Name)
 
@@ -278,7 +359,7 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 	// Start PTY
 	ptyFile, cmd, err := ptyService.StartWithConfig(shell, job.WorkingDirectory, job.EnvVars)
 	if err != nil {
-		finishedAt := time.Now()
+		finishedAt := e.timeProvider.Now()
 		return &CronExecutionResult{
 			JobID:       job.ID,
 			ExecutionID: executionID,
@@ -295,7 +376,7 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 	command := job.Command + "\nexit\n"
 	if _, err := ptyFile.Write([]byte(command)); err != nil {
 		cmd.Process.Kill()
-		finishedAt := time.Now()
+		finishedAt := e.timeProvider.Now()
 		return &CronExecutionResult{
 			JobID:       job.ID,
 			ExecutionID: executionID,
@@ -346,7 +427,7 @@ func (e *CronExecutor) ExecuteInPTY(job *CronJob, ptyService PTYService) (*CronE
 		waitErr = <-waitDone
 	}
 
-	finishedAt := time.Now()
+	finishedAt := e.timeProvider.Now()
 
 	// Truncate output if needed
 	outputStr := string(output)

@@ -280,17 +280,27 @@ var _ = Describe("CronExecutor", func() {
 
 		Context("with timeout", func() {
 			It("should timeout long-running command", func() {
-				job.Command = "sleep 2"
-				timeoutExecutor := NewCronExecutor(CronExecutorConfig{
-					MaxOutputSize:    config.MaxOutputSize,
-					ExecutionTimeout: 500 * time.Millisecond,
-					MaxConcurrent:    5,
+				// Use mock executor to avoid real sleep - much faster
+				mockExec := NewMockCommandExecutor()
+				mockExec.SetOnExecute(func(command string) MockCommandResult {
+					return MockCommandResult{Delay: 2 * time.Second, ExitCode: 0}
 				})
 
+				timeoutExecutor := NewCronExecutorWithOptions(CronExecutorConfig{
+					MaxOutputSize:    config.MaxOutputSize,
+					ExecutionTimeout: 100 * time.Millisecond,
+					MaxConcurrent:    5,
+				}, WithMockExecutor(mockExec))
+
+				job.Command = "sleep 2" // Will be mocked
+
+				start := time.Now()
 				result, err := timeoutExecutor.Execute(job)
+				elapsed := time.Since(start)
+
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result.ExitCode).ToNot(Equal(0))
-				Expect(result.Error).To(ContainSubstring("code"))
+				Expect(elapsed).To(BeNumerically("<", 200*time.Millisecond)) // Fast!
 			})
 
 			It("should complete within timeout", func() {
@@ -449,8 +459,10 @@ var _ = Describe("CronExecutor", func() {
 
 var _ = Describe("CronExecutor Concurrency Control", func() {
 	var (
-		executor *CronExecutor
-		config   CronExecutorConfig
+		executor   *CronExecutor
+		config     CronExecutorConfig
+		mockExec   *MockCommandExecutor
+		useMocks   bool = true // Use mocks for faster tests
 	)
 
 	BeforeEach(func() {
@@ -459,14 +471,23 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 			ExecutionTimeout: 10 * time.Second,
 			MaxOutputSize:    1024,
 		}
-		executor = NewCronExecutor(config)
+		if useMocks {
+			mockExec = NewMockCommandExecutor()
+			mockExec.SetDefaultResult(MockCommandResult{
+				Delay:    50 * time.Millisecond, // Simulated work
+				ExitCode: 0,
+			})
+			executor = NewCronExecutorWithOptions(config, WithMockExecutor(mockExec))
+		} else {
+			executor = NewCronExecutor(config)
+		}
 	})
 
 	Context("with MaxConcurrent limit", func() {
 		It("should limit concurrent executions", func() {
 			job := &CronJob{
 				ID:       "concurrent-test",
-				Command:  "sleep 0.2",
+				Command:  "sleep 0.2", // Will be mocked if useMocks is true
 				Schedule: "* * * * *",
 			}
 
@@ -489,13 +510,17 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 				Eventually(started, "2s").Should(Receive())
 			}
 
-			// At most MaxConcurrent should complete quickly
+			// At most MaxConcurrent should complete quickly (50ms each with mocks)
 			completions := 0
+			waitTime := 100 * time.Millisecond // With mocks, 50ms per job
+			if !useMocks {
+				waitTime = 300 * time.Millisecond // Real commands need longer
+			}
 			for i := 0; i < 5; i++ {
 				select {
 				case <-completed:
 					completions++
-				case <-time.After(300 * time.Millisecond):
+				case <-time.After(waitTime):
 					// Some jobs should be waiting
 				}
 			}
@@ -506,8 +531,9 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 
 	Context("with execution timeout waiting for slot", func() {
 		It("should timeout waiting for execution slot", func() {
+			// This test uses real commands because we need to test semaphore blocking
 			// Create executor with short timeout and max concurrent of 1
-			executor = NewCronExecutor(CronExecutorConfig{
+			realExecutor := NewCronExecutor(CronExecutorConfig{
 				MaxConcurrent:    1,
 				ExecutionTimeout: 500 * time.Millisecond,
 			})
@@ -518,7 +544,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 				Command:  "sleep 2",
 				Schedule: "* * * * *",
 			}
-			go executor.Execute(blocker)
+			go realExecutor.Execute(blocker)
 
 			// Give it time to acquire the slot
 			time.Sleep(20 * time.Millisecond)
@@ -530,7 +556,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 				Schedule: "* * * * *",
 			}
 
-			result, err := executor.Execute(waiter)
+			result, err := realExecutor.Execute(waiter)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("timeout"))
 			Expect(result).To(BeNil())
@@ -541,7 +567,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 		It("should handle rapid submissions gracefully", func() {
 			job := &CronJob{
 				ID:       "rapid",
-				Command:  "echo quick",
+				Command:  "echo quick", // Fast command (or mocked)
 				Schedule: "* * * * *",
 			}
 
@@ -554,9 +580,13 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 				}(i)
 			}
 
-			// All should complete eventually
+			// All should complete quickly (with mocks: 50ms * 10 batches = 500ms max)
 			count := 0
-			timeout := time.After(3 * time.Second)
+			timeoutDuration := 1 * time.Second // Reduced from 3s since we use mocks
+			if !useMocks {
+				timeoutDuration = 3 * time.Second
+			}
+			timeout := time.After(timeoutDuration)
 			for count < 20 {
 				select {
 				case <-results:
