@@ -513,7 +513,7 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 			select {
 			case <-done:
 				// Good - output generation completed
-			case <-time.After(5 * time.Second):
+			case <-time.After(2 * time.Second):
 				// Bad - the server hung
 				Fail("Server hung on excessive output")
 			}
@@ -576,7 +576,7 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 			}
 
 			// Wait a bit
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 
 			// The client should receive some messages but not all (rate limited)
 			// The exact number depends on timing, but should be reasonable
@@ -630,7 +630,7 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 			}
 
 			// Wait for rate limit to recover
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 
 			// Clear the channel
 			for len(client.sendChan) > 0 {

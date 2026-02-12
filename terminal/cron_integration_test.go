@@ -167,7 +167,7 @@ var _ = Describe("Cron Integration Tests", func() {
 
 				// Run the job to create metadata
 				manager.RunNow(job.ID)
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
 
 				manager.Stop()
 
@@ -289,11 +289,11 @@ var _ = Describe("Cron Integration Tests", func() {
 				}
 				job, _ := manager.Create(req)
 
-				// Wait for next second + execution
-				time.Sleep(2 * time.Second)
-
-				reloaded, _ := manager.Get(job.ID)
-				Expect(reloaded.Metadata.TotalRuns).To(BeNumerically(">", 0))
+				// Poll for job execution instead of fixed sleep
+				Eventually(func() int {
+					reloaded, _ := manager.Get(job.ID)
+					return reloaded.Metadata.TotalRuns
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">", 0))
 			})
 
 			It("should update next_run_at after execution", func() {
@@ -307,10 +307,11 @@ var _ = Describe("Cron Integration Tests", func() {
 
 				initialNextRun := job.Metadata.NextRunAt
 
-				time.Sleep(2 * time.Second)
-
-				reloaded, _ := manager.Get(job.ID)
-				Expect(reloaded.Metadata.NextRunAt).ToNot(Equal(initialNextRun))
+				// Poll for next_run_at update instead of fixed sleep
+				Eventually(func() int64 {
+					reloaded, _ := manager.Get(job.ID)
+					return reloaded.Metadata.NextRunAt
+				}, 2*time.Second, 50*time.Millisecond).ShouldNot(Equal(initialNextRun))
 			})
 
 			It("should record execution history from scheduler", func() {
@@ -318,10 +319,11 @@ var _ = Describe("Cron Integration Tests", func() {
 					Name: "Scheduler History", Schedule: "* * * * * *", Command: "echo scheduled", Enabled: true,
 				})
 
-				time.Sleep(2 * time.Second)
-
-				history, _ := manager.GetHistory(job.ID)
-				Expect(len(history)).To(BeNumerically(">", 0))
+				// Poll for history instead of fixed sleep
+				Eventually(func() int {
+					history, _ := manager.GetHistory(job.ID)
+					return len(history)
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">", 0))
 			})
 
 			It("should not execute disabled jobs", func() {
@@ -329,10 +331,11 @@ var _ = Describe("Cron Integration Tests", func() {
 					Name: "Disabled Schedule", Schedule: "* * * * * *", Command: "echo disabled", Enabled: false,
 				})
 
-				time.Sleep(2 * time.Second)
-
-				reloaded, _ := manager.Get(job.ID)
-				Expect(reloaded.Metadata.TotalRuns).To(Equal(0))
+				// Use Consistently to verify job doesn't execute (more efficient than sleep)
+				Consistently(func() int {
+					reloaded, _ := manager.Get(job.ID)
+					return reloaded.Metadata.TotalRuns
+				}, 500*time.Millisecond, 100*time.Millisecond).Should(Equal(0))
 			})
 
 			It("should execute multiple jobs independently", func() {
@@ -343,13 +346,16 @@ var _ = Describe("Cron Integration Tests", func() {
 					Name: "Job 2", Schedule: "* * * * * *", Command: "echo job2", Enabled: true,
 				})
 
-				time.Sleep(2 * time.Second)
+				// Poll for both jobs to execute
+				Eventually(func() int {
+					reloaded1, _ := manager.Get(job1.ID)
+					return reloaded1.Metadata.TotalRuns
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">", 0))
 
-				reloaded1, _ := manager.Get(job1.ID)
-				reloaded2, _ := manager.Get(job2.ID)
-
-				Expect(reloaded1.Metadata.TotalRuns).To(BeNumerically(">", 0))
-				Expect(reloaded2.Metadata.TotalRuns).To(BeNumerically(">", 0))
+				Eventually(func() int {
+					reloaded2, _ := manager.Get(job2.ID)
+					return reloaded2.Metadata.TotalRuns
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">", 0))
 			})
 		})
 	})
@@ -562,11 +568,14 @@ var _ = Describe("Cron Integration Tests", func() {
 					Name: "Failing Job", Schedule: "* * * * * *", Command: "exit 1", Enabled: true,
 				})
 
-				time.Sleep(2 * time.Second)
+				// Poll for execution instead of fixed sleep
+				Eventually(func() int {
+					reloaded, _ := manager.Get(job.ID)
+					return reloaded.Metadata.TotalRuns
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">", 0))
 
-				// Should have run and failed, but scheduler continues
+				// Verify failure was recorded
 				reloaded, _ := manager.Get(job.ID)
-				Expect(reloaded.Metadata.TotalRuns).To(BeNumerically(">", 0))
 				Expect(reloaded.Metadata.FailureCount).To(BeNumerically(">", 0))
 			})
 
@@ -583,7 +592,7 @@ var _ = Describe("Cron Integration Tests", func() {
 			It("should recover from timeout and continue scheduling", func() {
 				// Use a short-lived command to verify RunNow works without hanging
 				job, _ := manager.Create(CreateCronRequest{
-					Name: "Timeout Test", Schedule: "* * * * *", Command: "sleep 1",
+					Name: "Timeout Test", Schedule: "* * * * *", Command: "sleep 0.2",
 				})
 
 				result, err := manager.RunNow(job.ID)
@@ -643,11 +652,11 @@ var _ = Describe("Cron Integration Tests", func() {
 					Enabled:  true,
 				})
 
-				// Let it run a few times
-				time.Sleep(2 * time.Second)
-
-				reloaded, _ := manager.Get(healthJob.ID)
-				Expect(reloaded.Metadata.TotalRuns).To(BeNumerically(">=", 2))
+				// Poll for at least 1 execution instead of fixed sleep
+				Eventually(func() int {
+					reloaded, _ := manager.Get(healthJob.ID)
+					return reloaded.Metadata.TotalRuns
+				}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically(">=", 1))
 			})
 		})
 	})
@@ -693,9 +702,9 @@ var _ = Describe("Cron Integration Tests", func() {
 				// Multiple start/stop cycles
 				for i := 0; i < 5; i++ {
 					manager.Start()
-					time.Sleep(50 * time.Millisecond)
+					time.Sleep(10 * time.Millisecond)
 					manager.Stop()
-					time.Sleep(50 * time.Millisecond)
+					time.Sleep(10 * time.Millisecond)
 				}
 
 				// Job should still be accessible

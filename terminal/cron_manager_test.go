@@ -673,7 +673,7 @@ var _ = Describe("CronManager", func() {
 			It("should clear next_run_at when disabled", func() {
 				// Start manager to set next_run_at
 				manager.Start()
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				manager.Stop()
 
 				// Now disable
@@ -783,7 +783,7 @@ var _ = Describe("CronManager", func() {
 				job, _ := manager.Create(req)
 
 				manager.Start()
-				time.Sleep(200 * time.Millisecond) // Give scheduler time to calculate
+				time.Sleep(50 * time.Millisecond) // Give scheduler time to calculate
 
 				reloaded, _ := manager.Get(job.ID)
 				Expect(reloaded.Metadata.NextRunAt).ToNot(Equal(int64(0)))
@@ -799,7 +799,7 @@ var _ = Describe("CronManager", func() {
 				job, _ := manager.Create(req)
 
 				manager.Start()
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 
 				reloaded, _ := manager.Get(job.ID)
 				Expect(reloaded.Metadata.NextRunAt).To(Equal(int64(0)))
@@ -893,7 +893,7 @@ var _ = Describe("CronManager", func() {
 				job, _ := manager.Create(req)
 
 				manager.RunNow(job.ID)
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 
 				reloaded, _ := manager.Get(job.ID)
 				Expect(reloaded.Metadata.NextRunAt).ToNot(Equal(int64(0)))
@@ -971,6 +971,8 @@ var _ = Describe("CronManager", func() {
 			for i := 0; i < 5; i++ {
 				manager.RunNow(job.ID)
 			}
+
+			time.Sleep(50 * time.Millisecond)
 
 			history, _ := manager.GetHistory(job.ID)
 			Expect(len(history)).To(Equal(3))

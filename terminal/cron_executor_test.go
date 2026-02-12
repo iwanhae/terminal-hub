@@ -280,10 +280,10 @@ var _ = Describe("CronExecutor", func() {
 
 		Context("with timeout", func() {
 			It("should timeout long-running command", func() {
-				job.Command = "sleep 10"
+				job.Command = "sleep 2"
 				timeoutExecutor := NewCronExecutor(CronExecutorConfig{
 					MaxOutputSize:    config.MaxOutputSize,
-					ExecutionTimeout: 1 * time.Second,
+					ExecutionTimeout: 500 * time.Millisecond,
 					MaxConcurrent:    5,
 				})
 
@@ -466,7 +466,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 		It("should limit concurrent executions", func() {
 			job := &CronJob{
 				ID:       "concurrent-test",
-				Command:  "sleep 0.5",
+				Command:  "sleep 0.2",
 				Schedule: "* * * * *",
 			}
 
@@ -495,7 +495,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 				select {
 				case <-completed:
 					completions++
-				case <-time.After(700 * time.Millisecond):
+				case <-time.After(300 * time.Millisecond):
 					// Some jobs should be waiting
 				}
 			}
@@ -509,19 +509,19 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 			// Create executor with short timeout and max concurrent of 1
 			executor = NewCronExecutor(CronExecutorConfig{
 				MaxConcurrent:    1,
-				ExecutionTimeout: 1 * time.Second,
+				ExecutionTimeout: 500 * time.Millisecond,
 			})
 
 			// Fill the slot with a slow job
 			blocker := &CronJob{
 				ID:       "blocker",
-				Command:  "sleep 5",
+				Command:  "sleep 2",
 				Schedule: "* * * * *",
 			}
 			go executor.Execute(blocker)
 
 			// Give it time to acquire the slot
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 
 			// Try to run another - should timeout
 			waiter := &CronJob{
@@ -556,7 +556,7 @@ var _ = Describe("CronExecutor Concurrency Control", func() {
 
 			// All should complete eventually
 			count := 0
-			timeout := time.After(10 * time.Second)
+			timeout := time.After(3 * time.Second)
 			for count < 20 {
 				select {
 				case <-results:
