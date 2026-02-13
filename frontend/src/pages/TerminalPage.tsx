@@ -43,6 +43,10 @@ export default function TerminalPage() {
     [send],
   );
 
+  const pasteFromClipboard = useCallback(() => {
+    void terminalRef.current?.pasteFromClipboard();
+  }, []);
+
   if (trimmedSessionId === "") return null;
 
   return (
@@ -61,6 +65,15 @@ export default function TerminalPage() {
             onClick={() => send("\x1b")}
           >
             Esc
+          </button>
+
+          <button
+            type="button"
+            className="px-2 py-1 rounded-md bg-zinc-950 text-zinc-200 border border-zinc-800"
+            data-testid="extra-key-paste"
+            onClick={pasteFromClipboard}
+          >
+            Paste
           </button>
 
           {/* Tab key */}

@@ -17,6 +17,7 @@ interface TerminalProps {
 export type TerminalHandle = {
   focus: () => void;
   sendInput: (data: string) => void;
+  pasteFromClipboard: () => Promise<void>;
 };
 
 interface FileDownloadMessage {
@@ -33,6 +34,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const fitAddonRef = useRef<FitAddon | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const sendInputRef = useRef<(data: string) => void>(() => {});
+    const pasteFromClipboardRef = useRef<() => Promise<void>>(async () => {});
 
     // Touch state tracking for scroll handling
     const touchStateRef = useRef<{
@@ -71,6 +73,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       () => ({
         focus,
         sendInput: (data: string) => sendInputRef.current(data),
+        pasteFromClipboard: () => pasteFromClipboardRef.current(),
       }),
       [focus],
     );
@@ -191,7 +194,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         });
         terminalDomNode.addEventListener("touchend", handleTouchEnd);
         terminalDomNode.addEventListener("touchcancel", handleTouchEnd);
+        terminalDomNode.addEventListener("paste", handlePasteEvent);
       }
+
+      terminal.attachCustomKeyEventHandler(handleCustomKeyEvent);
 
       if (window.innerWidth < 768) {
         setTimeout(() => terminal.focus(), 200);
@@ -265,6 +271,86 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             }),
           );
         }, 75);
+      };
+
+      const copySelectionToClipboard = async () => {
+        try {
+          let selectedText = terminal.getSelection();
+          if (selectedText.length === 0) {
+            selectedText = window.getSelection()?.toString() ?? "";
+          }
+
+          if (selectedText.length === 0) {
+            toast.error("No text selected to copy");
+            return;
+          }
+
+          if (!navigator.clipboard?.writeText) {
+            toast.error("Clipboard API is not available in this browser");
+            return;
+          }
+
+          await navigator.clipboard.writeText(selectedText);
+          toast.success("Copied to clipboard");
+        } catch (error) {
+          console.error("Clipboard copy error:", error);
+          toast.error("Failed to copy to clipboard");
+        }
+      };
+
+      const pasteFromClipboard = async () => {
+        try {
+          if (!navigator.clipboard?.readText) {
+            toast.error("Clipboard API is not available in this browser");
+            return;
+          }
+
+          const text = await navigator.clipboard.readText();
+          if (text.length === 0) {
+            return;
+          }
+
+          sendInputRef.current(text);
+        } catch (error) {
+          console.error("Clipboard paste error:", error);
+          toast.error("Failed to paste from clipboard");
+        }
+      };
+
+      const handlePasteEvent = (event: ClipboardEvent) => {
+        event.preventDefault();
+
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        if (text.length > 0) {
+          sendInputRef.current(text);
+        }
+      };
+
+      const handleCustomKeyEvent = (event: KeyboardEvent): boolean => {
+        const isModifier = event.ctrlKey || event.metaKey;
+        const isShift = event.shiftKey;
+        if (!isModifier || !isShift || event.altKey) {
+          return true;
+        }
+
+        const key = event.key.toLowerCase();
+        if (key === "c") {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            void copySelectionToClipboard();
+          }
+          return false;
+        }
+
+        if (key === "v") {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            void pasteFromClipboard();
+          }
+          return false;
+        }
+
+        return true;
       };
 
       // Calculate exponential backoff delay with max cap
@@ -487,6 +573,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       };
 
       sendInputRef.current = sendInput;
+      pasteFromClipboardRef.current = pasteFromClipboard;
 
       terminal.onData((data) => sendInputRef.current(data));
 
@@ -525,7 +612,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           terminalDomNode.removeEventListener("touchmove", handleTouchMove);
           terminalDomNode.removeEventListener("touchend", handleTouchEnd);
           terminalDomNode.removeEventListener("touchcancel", handleTouchEnd);
+          terminalDomNode.removeEventListener("paste", handlePasteEvent);
         }
+
+        terminal.attachCustomKeyEventHandler(() => true);
 
         // Clear any pending reconnection timeout
         if (reconnectTimeoutRef.current !== null) {
