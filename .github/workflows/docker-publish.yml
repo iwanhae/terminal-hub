@@ -11,6 +11,9 @@ on:
     tags: [ "v*.*.*" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    # Every day at 13:00 UTC (~8:00am ET)
+    - cron: "0 13 * * *"
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -21,7 +24,7 @@ env:
 
 jobs:
   build:
-
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -115,4 +118,134 @@ jobs:
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+  daily-main:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 #v3.5.0
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push no-cache main image
+        id: build-main
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: .
+          pull: true
+          no-cache: true
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+
+      - name: Sign published main image
+        env:
+          TAGS: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          DIGEST: ${{ steps.build-main.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+  daily-release:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository with tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest release tag
+        id: latest_release
+        shell: bash
+        run: |
+          latest="$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)"
+          if [[ -z "${latest}" ]]; then
+            echo "tag=" >> "${GITHUB_OUTPUT}"
+            echo "tags=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          major="$(echo "${latest}" | sed -E 's/^v([0-9]+)\..*$/v\1/')"
+          major_minor="$(echo "${latest}" | sed -E 's/^v([0-9]+\.[0-9]+)\..*$/v\1/')"
+          image="${REGISTRY}/${IMAGE_NAME}"
+
+          {
+            echo "tag=${latest}"
+            echo "tags<<EOF"
+            echo "${image}:latest"
+            echo "${image}:${major}"
+            echo "${image}:${major_minor}"
+            echo "${image}:${latest}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Stop if no release tags exist
+        if: steps.latest_release.outputs.tag == ''
+        run: |
+          echo "No release tag matching v*.*.* found; skipping daily release image build."
+
+      - name: Checkout latest release tag
+        if: steps.latest_release.outputs.tag != ''
+        run: git checkout --detach "${{ steps.latest_release.outputs.tag }}"
+
+      - name: Install cosign
+        if: steps.latest_release.outputs.tag != ''
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 #v3.5.0
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Set up Docker Buildx
+        if: steps.latest_release.outputs.tag != ''
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: steps.latest_release.outputs.tag != ''
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push no-cache latest release image
+        if: steps.latest_release.outputs.tag != ''
+        id: build-release
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: .
+          pull: true
+          no-cache: true
+          push: true
+          tags: ${{ steps.latest_release.outputs.tags }}
+
+      - name: Sign published latest release image
+        if: steps.latest_release.outputs.tag != ''
+        env:
+          TAGS: ${{ steps.latest_release.outputs.tags }}
+          DIGEST: ${{ steps.build-release.outputs.digest }}
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
