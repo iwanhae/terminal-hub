@@ -27,6 +27,7 @@ make build-backend
 ```
 
 **Important**: Use `make build` as the default build entrypoint in all normal cases, including frontend-only changes.
+**Agent policy**: Always run `make build` and `make test` after any code change, without asking the user for confirmation first.
 
 ### Running the Application
 ```bash
@@ -56,6 +57,7 @@ make build
 ```
 
 Use `make build` even when only frontend files are changed. `npm run ...` commands should be avoided unless the user explicitly asks for npm-based workflows.
+Always run `make build` and `make test` after any code change and do not ask for user confirmation first.
 
 ### Testing
 ```bash

@@ -20,12 +20,6 @@ export type TerminalHandle = {
   pasteFromClipboard: () => Promise<void>;
 };
 
-interface FileDownloadMessage {
-  type: "file_download";
-  path: string;
-  filename: string;
-}
-
 const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
   ({ wsUrl }, ref) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -317,16 +311,16 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         }
       };
 
-      const handlePasteEvent = (event: ClipboardEvent) => {
+      function handlePasteEvent(event: ClipboardEvent) {
         event.preventDefault();
 
         const text = event.clipboardData?.getData("text/plain") ?? "";
         if (text.length > 0) {
           sendInputRef.current(text);
         }
-      };
+      }
 
-      const handleCustomKeyEvent = (event: KeyboardEvent): boolean => {
+      function handleCustomKeyEvent(event: KeyboardEvent): boolean {
         const isModifier = event.ctrlKey || event.metaKey;
         const isShift = event.shiftKey;
         if (!isModifier || !isShift || event.altKey) {
@@ -351,7 +345,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         }
 
         return true;
-      };
+      }
 
       // Calculate exponential backoff delay with max cap
       const calculateBackoffDelay = (attempt: number): number => {
@@ -424,19 +418,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           // Convert data to Uint8Array
           const dataToWrite = new Uint8Array(event.data);
 
-          // Check for OSC file download sequences
-          const downloadMsg = parseOSCFilename(dataToWrite);
-          if (downloadMsg) {
-            void triggerDownload(downloadMsg);
-            const strippedData = stripOSCSequences(dataToWrite);
-
-            // Write to terminal (or skip if empty after stripping)
-            if (strippedData.length > 0) {
-              terminal.write(strippedData);
-            }
-            return;
-          }
-
           // Write to terminal
           terminal.write(dataToWrite);
         };
@@ -470,85 +451,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       const initialFitTimeout = setTimeout(() => {
         sendResize(wsRef.current);
       }, 100);
-
-      // Parse OSC escape sequences for file downloads
-      const parseOSCFilename = (
-        data: Uint8Array,
-      ): FileDownloadMessage | null => {
-        // eslint-disable-next-line unicorn/prefer-code-point
-        const str = String.fromCharCode(...data);
-        // OSC sequence: ESC ] FILE;download:path=<path>,name=<name> BEL
-        const oscPattern =
-          // eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
-          /\x1b\]FILE;download:path=([^,]+),name=([^\x07]+)\x07/g;
-        const match = oscPattern.exec(str);
-
-        if (match && match.length >= 3) {
-          return {
-            type: "file_download",
-            path: match[1],
-            filename: match[2],
-          };
-        }
-
-        return null;
-      };
-
-      // Strip OSC sequences from terminal output
-      const stripOSCSequences = (data: Uint8Array): Uint8Array => {
-        // eslint-disable-next-line unicorn/prefer-code-point
-        const str = String.fromCharCode(...data);
-        // OSC sequence: ESC ] FILE;download:... BEL
-        const cleaned = str.replaceAll(
-          // eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
-          /\x1b\]FILE;download:[^\x07]+\x07/g,
-          "",
-        );
-        return new TextEncoder().encode(cleaned);
-      };
-
-      // Trigger file download via REST API (session-independent)
-      const triggerDownload = async (msg: FileDownloadMessage) => {
-        try {
-          const params = new URLSearchParams({
-            path: msg.path,
-            filename: msg.filename,
-          });
-
-          const response = await fetch(`/api/download?${params.toString()}`, {
-            method: "GET",
-            credentials: "include",
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            terminal.write(
-              `\r\n\x1b[31m[Download Error] ${errorText}\x1b[0m\r\n`,
-            );
-            return;
-          }
-
-          // Get blob and trigger browser download
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = msg.filename;
-          document.body.append(a);
-          a.click();
-          a.remove();
-          window.URL.revokeObjectURL(url);
-
-          terminal.write(
-            `\r\n\x1b[32m[Download] Downloading: ${msg.filename}\x1b[0m\r\n`,
-          );
-        } catch (error) {
-          console.error("Download error:", error);
-          terminal.write(
-            `\r\n\x1b[31m[Download Error] Failed to initiate download\x1b[0m\r\n`,
-          );
-        }
-      };
 
       // Initial WebSocket connection
       connectWebSocket();

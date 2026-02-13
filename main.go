@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"mime"
@@ -435,6 +436,104 @@ func handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleFileUpload handles POST /api/upload
+func handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uploadPath := r.URL.Query().Get("path")
+	if uploadPath == "" {
+		http.Error(w, "Upload path is required", http.StatusBadRequest)
+		return
+	}
+
+	rawFilename := r.URL.Query().Get("filename")
+	if strings.TrimSpace(rawFilename) == "" {
+		http.Error(w, "Filename is required", http.StatusBadRequest)
+		return
+	}
+
+	filename := sanitizeFilename(rawFilename)
+	if filename == "" || filename == "." {
+		http.Error(w, "Filename is required", http.StatusBadRequest)
+		return
+	}
+
+	cleanPath := filepath.Clean(uploadPath)
+	if !filepath.IsAbs(cleanPath) {
+		http.Error(w, "Upload path must be absolute", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure destination directory exists and is a directory.
+	if fileInfo, err := os.Stat(cleanPath); err == nil {
+		if !fileInfo.IsDir() {
+			http.Error(w, "Upload path must be a directory", http.StatusBadRequest)
+			return
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(cleanPath, 0o755); err != nil {
+			log.Printf("Error creating upload path: %v", err)
+			http.Error(w, "Failed to create upload path", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		log.Printf("Error checking upload path: %v", err)
+		http.Error(w, "Failed to access upload path", http.StatusInternalServerError)
+		return
+	}
+
+	targetPath := filepath.Join(cleanPath, filename)
+	overwrite := strings.EqualFold(r.URL.Query().Get("overwrite"), "true")
+
+	flags := os.O_CREATE | os.O_WRONLY
+	if overwrite {
+		flags |= os.O_TRUNC
+	} else {
+		flags |= os.O_EXCL
+	}
+
+	targetFile, err := os.OpenFile(targetPath, flags, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			http.Error(w, "File already exists", http.StatusConflict)
+			return
+		}
+		log.Printf("Error opening upload target file: %v", err)
+		http.Error(w, "Failed to open upload target", http.StatusInternalServerError)
+		return
+	}
+
+	written, err := io.Copy(targetFile, r.Body)
+	closeErr := targetFile.Close()
+	if err != nil {
+		_ = os.Remove(targetPath)
+		log.Printf("Error streaming upload to file: %v", err)
+		http.Error(w, "Failed to write upload", http.StatusInternalServerError)
+		return
+	}
+	if closeErr != nil {
+		_ = os.Remove(targetPath)
+		log.Printf("Error closing uploaded file: %v", closeErr)
+		http.Error(w, "Failed to finalize upload", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"path":     targetPath,
+		"filename": filename,
+		"size":     written,
+	}); err != nil {
+		log.Printf("Error encoding upload response: %v", err)
+	}
+
+	log.Printf("File uploaded: path=%s, size=%d, filename=%s",
+		targetPath, written, filename)
 }
 
 // handleFileDownload handles GET /api/download
@@ -1047,6 +1146,7 @@ func main() {
 
 	// File download endpoint (session-independent)
 	http.HandleFunc("/api/download", sessionAuthMiddleware(handleFileDownload, sessionAuthManager))
+	http.HandleFunc("/api/upload", sessionAuthMiddleware(handleFileUpload, sessionAuthManager))
 
 	// Cron API routes (only if cron is enabled)
 	if cronManager != nil {
