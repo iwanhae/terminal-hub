@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,6 +65,11 @@ func (c *WebSocketClientImpl) Close() error {
 
 var sessionManager *terminal.SessionManager
 var cronManager *cron.CronManager
+
+var (
+	errBrowseSessionNotFound = errors.New("session not found")
+	errBrowsePathOutsideRoot = errors.New("path outside session root")
+)
 
 // -- WebSocket --
 
@@ -435,6 +442,222 @@ func handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type fileBrowseEntry struct {
+	Name        string    `json:"name"`
+	Path        string    `json:"path"`
+	IsDirectory bool      `json:"is_directory"`
+	Size        int64     `json:"size"`
+	ModifiedAt  time.Time `json:"modified_at"`
+}
+
+type fileBrowseResponse struct {
+	Root    string            `json:"root"`
+	Current string            `json:"current"`
+	Parent  string            `json:"parent,omitempty"`
+	Entries []fileBrowseEntry `json:"entries"`
+}
+
+// handleFileBrowse handles GET /api/files/browse
+func handleFileBrowse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	if sessionID == "" {
+		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	rootPath, err := resolveSessionBrowseRoot(sessionID)
+	if err != nil {
+		if errors.Is(err, errBrowseSessionNotFound) {
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
+
+		log.Printf("Error resolving browse root: %v", err)
+		http.Error(w, "Failed to resolve browse root", http.StatusInternalServerError)
+		return
+	}
+
+	requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	targetPath, err := resolveBrowsePath(rootPath, requestedPath)
+	if err != nil {
+		if errors.Is(err, errBrowsePathOutsideRoot) {
+			http.Error(w, "Path is outside allowed root", http.StatusForbidden)
+			return
+		}
+
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	targetInfo, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		http.Error(w, "Path not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("Error accessing browse path: %v", err)
+		http.Error(w, "Failed to access path", http.StatusInternalServerError)
+		return
+	}
+	if !targetInfo.IsDir() {
+		http.Error(w, "Path must be a directory", http.StatusBadRequest)
+		return
+	}
+
+	showHidden := strings.EqualFold(r.URL.Query().Get("showHidden"), "true")
+
+	dirEntries, err := os.ReadDir(targetPath)
+	if err != nil {
+		log.Printf("Error reading directory: %v", err)
+		http.Error(w, "Failed to read directory", http.StatusInternalServerError)
+		return
+	}
+
+	entries := make([]fileBrowseEntry, 0, len(dirEntries))
+	for _, entry := range dirEntries {
+		name := entry.Name()
+		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			log.Printf("Warning: failed to stat entry %q: %v", name, infoErr)
+			continue
+		}
+
+		size := info.Size()
+		if info.IsDir() {
+			size = 0
+		}
+
+		entries = append(entries, fileBrowseEntry{
+			Name:        name,
+			Path:        filepath.Join(targetPath, name),
+			IsDirectory: info.IsDir(),
+			Size:        size,
+			ModifiedAt:  info.ModTime(),
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDirectory != entries[j].IsDirectory {
+			return entries[i].IsDirectory
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+
+	parentPath := ""
+	if targetPath != rootPath {
+		parentCandidate := filepath.Dir(targetPath)
+		if isPathWithinRoot(rootPath, parentCandidate) {
+			parentPath = parentCandidate
+		}
+	}
+
+	response := fileBrowseResponse{
+		Root:    rootPath,
+		Current: targetPath,
+		Parent:  parentPath,
+		Entries: entries,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding browse response: %v", err)
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+func resolveSessionBrowseRoot(sessionID string) (string, error) {
+	if sessionManager == nil {
+		return "", errors.New("session manager is not initialized")
+	}
+
+	sess, ok := sessionManager.Get(sessionID)
+	if !ok {
+		return "", errBrowseSessionNotFound
+	}
+
+	rootPath := strings.TrimSpace(sess.GetMetadata().WorkingDirectory)
+	if rootPath == "" {
+		var err error
+		rootPath, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	cleanRoot, err := normalizeAbsolutePath(rootPath)
+	if err != nil {
+		return "", err
+	}
+
+	rootInfo, err := os.Stat(cleanRoot)
+	if os.IsNotExist(err) {
+		return "", err
+	}
+	if err != nil {
+		return "", err
+	}
+	if !rootInfo.IsDir() {
+		return "", errors.New("session root is not a directory")
+	}
+
+	return cleanRoot, nil
+}
+
+func normalizeAbsolutePath(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "" || cleanPath == "." {
+		return "", errors.New("path is required")
+	}
+
+	if !filepath.IsAbs(cleanPath) {
+		absPath, err := filepath.Abs(cleanPath)
+		if err != nil {
+			return "", err
+		}
+		cleanPath = absPath
+	}
+
+	return cleanPath, nil
+}
+
+func resolveBrowsePath(rootPath string, requestedPath string) (string, error) {
+	targetPath := rootPath
+	if requestedPath != "" {
+		normalizedPath, err := normalizeAbsolutePath(requestedPath)
+		if err != nil {
+			return "", err
+		}
+		targetPath = normalizedPath
+	}
+
+	if !isPathWithinRoot(rootPath, targetPath) {
+		return "", errBrowsePathOutsideRoot
+	}
+
+	return targetPath, nil
+}
+
+func isPathWithinRoot(rootPath string, targetPath string) bool {
+	relativePath, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return false
+	}
+
+	return relativePath == "." ||
+		(relativePath != ".." &&
+			!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)))
 }
 
 // handleFileUpload handles POST /api/upload
@@ -1144,6 +1367,7 @@ func Run() {
 	}, sessionAuthManager))
 
 	// File download endpoint (session-independent)
+	http.HandleFunc("/api/files/browse", sessionAuthMiddleware(handleFileBrowse, sessionAuthManager))
 	http.HandleFunc("/api/download", sessionAuthMiddleware(handleFileDownload, sessionAuthManager))
 	http.HandleFunc("/api/upload", sessionAuthMiddleware(handleFileUpload, sessionAuthManager))
 

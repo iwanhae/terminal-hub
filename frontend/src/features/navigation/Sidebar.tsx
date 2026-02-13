@@ -6,6 +6,11 @@ import { useAuth } from "../auth/useAuth";
 import CreateSessionDialog from "../sessions/CreateSessionDialog";
 import RenameSessionDialog from "../sessions/RenameSessionDialog";
 import type { SessionInfo } from "../sessions/api";
+import FileTransferPanel from "../terminal/FileTransferPanel";
+import {
+  useFileTransfer,
+  type UseFileTransferResult,
+} from "../terminal/useFileTransfer";
 
 type SidebarProps = Readonly<{
   containerClassName?: string;
@@ -135,6 +140,9 @@ type MobileFabProps = Readonly<{
   onDelete: (id: string, name: string) => void;
   onCreateSession: () => void;
   dockToKeyBar: boolean;
+  transferSessionId: string | null;
+  transferSessionName: string;
+  transfer: UseFileTransferResult;
 }>;
 
 function MobileFab({
@@ -152,9 +160,13 @@ function MobileFab({
   onDelete,
   onCreateSession,
   dockToKeyBar,
+  transferSessionId,
+  transferSessionName,
+  transfer,
 }: MobileFabProps) {
   const fabRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [showFilesSheet, setShowFilesSheet] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -173,13 +185,13 @@ function MobileFab({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [fabOpen, setFabOpen]);
 
-  // When docked to key bar (terminal page), use inline rendering
-  // When floating (dashboard), use fixed positioning
+  // Keep FAB fixed on mobile. On terminal pages it sits slightly higher
+  // so it does not overlap the extra key bar.
   const wrapperClassName = dockToKeyBar
-    ? "md:hidden relative inline-flex"
+    ? "md:hidden fixed bottom-20 right-4 z-50"
     : "md:hidden fixed bottom-6 right-6 z-50";
   const menuClassName = dockToKeyBar
-    ? "absolute bottom-full right-0 mb-3 w-72"
+    ? "absolute bottom-14 right-0 w-72"
     : "absolute bottom-20 right-0 w-72";
   const fabSizeClass = dockToKeyBar ? "w-10 h-10" : "w-14 h-14";
   const iconSizeClass = dockToKeyBar ? "w-4 h-4" : "w-6 h-6";
@@ -304,6 +316,17 @@ function MobileFab({
         <div className="p-3 border-t border-zinc-800 space-y-1">
           <button
             onClick={() => {
+              setShowFilesSheet(true);
+              setFabOpen(false);
+            }}
+            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            title="Files"
+          >
+            <span className="text-lg">[F]</span>
+            <span className="text-sm font-medium flex-1 text-left">Files</span>
+          </button>
+          <button
+            onClick={() => {
               onNavigateToCrons();
               setFabOpen(false);
             }}
@@ -333,6 +356,29 @@ function MobileFab({
           </button>
         </div>
       </div>
+
+      {showFilesSheet && (
+        <div className="fixed inset-0 z-[85] bg-black/70 backdrop-blur-sm p-3 flex items-end">
+          <div className="w-full max-h-[85vh] overflow-y-auto rounded-t-2xl border border-zinc-700 bg-zinc-900 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-zinc-100">Files</p>
+              <button
+                type="button"
+                className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1 text-sm text-zinc-300"
+                onClick={() => setShowFilesSheet(false)}
+              >
+                Close
+              </button>
+            </div>
+            <FileTransferPanel
+              variant="mobile-sheet"
+              sessionId={transferSessionId}
+              sessionName={transferSessionName}
+              transfer={transfer}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -352,9 +398,13 @@ export default function Sidebar({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [showTransferPopover, setShowTransferPopover] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [fabOpen, setFabOpen] = useState(false);
+  const transferPopoverRef = useRef<HTMLDivElement>(null);
+  const transferButtonRef = useRef<HTMLButtonElement>(null);
+  const transfer = useFileTransfer("/tmp");
 
   const currentSessionId = location.pathname.startsWith("/session/")
     ? location.pathname.split("/")[2]
@@ -371,6 +421,10 @@ export default function Sidebar({
     session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
   const dockFabToKeyBar = location.pathname.startsWith("/session/");
+  const activeTransferSession =
+    sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
+  const transferSessionId = activeTransferSession?.id ?? null;
+  const transferSessionName = activeTransferSession?.metadata.name ?? "None";
 
   const handleNavigate = (sessionId: string) => {
     const result = navigate(`/session/${sessionId}`);
@@ -423,11 +477,35 @@ export default function Sidebar({
       });
   };
 
+  useEffect(() => {
+    if (!showTransferPopover) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const targetNode = event.target as Node;
+      if (
+        transferPopoverRef.current != null &&
+        transferPopoverRef.current.contains(targetNode)
+      ) {
+        return;
+      }
+      if (
+        transferButtonRef.current != null &&
+        transferButtonRef.current.contains(targetNode)
+      ) {
+        return;
+      }
+      setShowTransferPopover(false);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTransferPopover]);
+
   return (
     <>
       <div
         data-testid={testId}
-        className={`hidden md:flex flex-col h-[100dvh] min-h-screen bg-zinc-900/70 backdrop-blur-xl border-r border-zinc-800/80 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} ${containerClassName}`}
+        className={`hidden md:flex relative flex-col h-[100dvh] min-h-screen bg-zinc-900/70 backdrop-blur-xl border-r border-zinc-800/80 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} ${containerClassName}`}
       >
         {/* Header */}
         <div
@@ -445,7 +523,10 @@ export default function Sidebar({
             </button>
           )}
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => {
+              setCollapsed(!collapsed);
+              setShowTransferPopover(false);
+            }}
             className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
             title={collapsed ? "Expand" : "Collapse"}
           >
@@ -477,6 +558,17 @@ export default function Sidebar({
               <span className="text-sm font-medium">New Session</span>
             )}
           </button>
+          {collapsed && (
+            <button
+              ref={transferButtonRef}
+              onClick={() => setShowTransferPopover((current) => !current)}
+              className="w-full flex items-center justify-center rounded-md border border-zinc-700 bg-zinc-950 text-zinc-300 p-2 hover:bg-zinc-800 transition-colors"
+              title="Files"
+              data-testid="files-nav-item"
+            >
+              [F]
+            </button>
+          )}
         </div>
 
         {/* Session List */}
@@ -532,6 +624,20 @@ export default function Sidebar({
               </span>
             )}
           </button>
+
+          {!collapsed && (
+            <>
+              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-2 mt-4">
+                Files
+              </div>
+              <FileTransferPanel
+                variant="sidebar"
+                sessionId={transferSessionId}
+                sessionName={transferSessionName}
+                transfer={transfer}
+              />
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -566,27 +672,41 @@ export default function Sidebar({
             {!collapsed && <span className="text-sm font-medium">Logout</span>}
           </button>
         </div>
+
+        {collapsed && showTransferPopover && (
+          <div
+            ref={transferPopoverRef}
+            className="absolute left-[4.5rem] top-20 z-[70] w-80 rounded-lg border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl"
+          >
+            <FileTransferPanel
+              variant="popover"
+              sessionId={transferSessionId}
+              sessionName={transferSessionName}
+              transfer={transfer}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Only render floating FAB on dashboard (not on terminal pages) */}
-      {!dockFabToKeyBar && (
-        <MobileFab
-          fabOpen={fabOpen}
-          setFabOpen={setFabOpen}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          filteredSessions={filteredSessions}
-          cronCount={crons.length}
-          currentSessionId={currentSessionId}
-          onNavigate={handleNavigate}
-          onNavigateToDashboard={handleNavigateToDashboard}
-          onNavigateToCrons={handleNavigateToCrons}
-          onRename={setRenameSessionId}
-          onDelete={handleDeleteSession}
-          onCreateSession={() => setShowCreateDialog(true)}
-          dockToKeyBar={false}
-        />
-      )}
+      <MobileFab
+        fabOpen={fabOpen}
+        setFabOpen={setFabOpen}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        filteredSessions={filteredSessions}
+        cronCount={crons.length}
+        currentSessionId={currentSessionId}
+        onNavigate={handleNavigate}
+        onNavigateToDashboard={handleNavigateToDashboard}
+        onNavigateToCrons={handleNavigateToCrons}
+        onRename={setRenameSessionId}
+        onDelete={handleDeleteSession}
+        onCreateSession={() => setShowCreateDialog(true)}
+        dockToKeyBar={dockFabToKeyBar}
+        transferSessionId={transferSessionId}
+        transferSessionName={transferSessionName}
+        transfer={transfer}
+      />
 
       {showCreateDialog && (
         <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
