@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthProvider";
-import { SessionProvider } from "./contexts/SessionContext";
-import { CronProvider } from "./contexts/CronContext";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import Sidebar from "./components/Sidebar";
-import SessionGrid from "./components/SessionGrid";
-import TerminalPage from "./pages/TerminalPage";
-import CronPage from "./pages/CronPage";
-import LoginPage from "./pages/LoginPage";
+import { AuthProvider } from "./features/auth/AuthProvider";
+import { SessionProvider } from "./features/sessions/SessionContext";
+import { CronProvider } from "./features/crons/CronContext";
+import { ProtectedRoute } from "./features/auth/ProtectedRoute";
+import Sidebar from "./features/navigation/Sidebar";
+import SessionGrid from "./features/sessions/SessionGrid";
+import TerminalPage from "./features/terminal/TerminalPage";
+import CronPage from "./features/crons/CronPage";
+import LoginPage from "./features/auth/LoginPage";
 import { Toaster } from "react-hot-toast";
 
 function App() {
