@@ -7,6 +7,7 @@ import CreateSessionDialog from "../sessions/CreateSessionDialog";
 import RenameSessionDialog from "../sessions/RenameSessionDialog";
 import type { SessionInfo } from "../sessions/api";
 import FileTransferPanel from "../terminal/FileTransferPanel";
+import FileTransferDrawer from "../terminal/FileTransferDrawer";
 import {
   useFileTransfer,
   type UseFileTransferResult,
@@ -398,12 +399,10 @@ export default function Sidebar({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [showTransferPopover, setShowTransferPopover] = useState(false);
+  const [showFilesDrawer, setShowFilesDrawer] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [fabOpen, setFabOpen] = useState(false);
-  const transferPopoverRef = useRef<HTMLDivElement>(null);
-  const transferButtonRef = useRef<HTMLButtonElement>(null);
   const transfer = useFileTransfer("/tmp");
 
   const currentSessionId = location.pathname.startsWith("/session/")
@@ -477,30 +476,6 @@ export default function Sidebar({
       });
   };
 
-  useEffect(() => {
-    if (!showTransferPopover) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const targetNode = event.target as Node;
-      if (
-        transferPopoverRef.current != null &&
-        transferPopoverRef.current.contains(targetNode)
-      ) {
-        return;
-      }
-      if (
-        transferButtonRef.current != null &&
-        transferButtonRef.current.contains(targetNode)
-      ) {
-        return;
-      }
-      setShowTransferPopover(false);
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showTransferPopover]);
-
   return (
     <>
       <div
@@ -525,7 +500,6 @@ export default function Sidebar({
           <button
             onClick={() => {
               setCollapsed(!collapsed);
-              setShowTransferPopover(false);
             }}
             className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
             title={collapsed ? "Expand" : "Collapse"}
@@ -558,17 +532,22 @@ export default function Sidebar({
               <span className="text-sm font-medium">New Session</span>
             )}
           </button>
-          {collapsed && (
-            <button
-              ref={transferButtonRef}
-              onClick={() => setShowTransferPopover((current) => !current)}
-              className="w-full flex items-center justify-center rounded-md border border-zinc-700 bg-zinc-950 text-zinc-300 p-2 hover:bg-zinc-800 transition-colors"
-              title="Files"
-              data-testid="files-nav-item"
-            >
-              [F]
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowFilesDrawer(true)}
+            className={`w-full flex items-center rounded-md border border-zinc-700 bg-zinc-950 text-zinc-300 p-2 hover:bg-zinc-800 transition-colors ${
+              collapsed ? "justify-center" : "justify-between"
+            }`}
+            title="Open Files Workspace"
+            data-testid="files-nav-item"
+          >
+            <span className="text-sm">[F]</span>
+            {!collapsed && (
+              <span className="text-xs uppercase tracking-wide text-zinc-300">
+                Open Files Workspace
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Session List */}
@@ -624,20 +603,6 @@ export default function Sidebar({
               </span>
             )}
           </button>
-
-          {!collapsed && (
-            <>
-              <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-2 mt-4">
-                Files
-              </div>
-              <FileTransferPanel
-                variant="sidebar"
-                sessionId={transferSessionId}
-                sessionName={transferSessionName}
-                transfer={transfer}
-              />
-            </>
-          )}
         </div>
 
         {/* Footer */}
@@ -672,21 +637,15 @@ export default function Sidebar({
             {!collapsed && <span className="text-sm font-medium">Logout</span>}
           </button>
         </div>
-
-        {collapsed && showTransferPopover && (
-          <div
-            ref={transferPopoverRef}
-            className="absolute left-[4.5rem] top-20 z-[70] w-80 rounded-lg border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl"
-          >
-            <FileTransferPanel
-              variant="popover"
-              sessionId={transferSessionId}
-              sessionName={transferSessionName}
-              transfer={transfer}
-            />
-          </div>
-        )}
       </div>
+
+      <FileTransferDrawer
+        open={showFilesDrawer}
+        onClose={() => setShowFilesDrawer(false)}
+        sessionId={transferSessionId}
+        sessionName={transferSessionName}
+        transfer={transfer}
+      />
 
       <MobileFab
         fabOpen={fabOpen}
