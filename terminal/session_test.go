@@ -94,11 +94,58 @@ func (m *MockPTYService) Start(shell string) (*os.File, error) {
 	return m.startReturn, nil
 }
 
+func (m *MockPTYService) StartWithConfig(
+	_ string,
+	_ string,
+	_ map[string]string,
+) (*os.File, *exec.Cmd, error) {
+	m.startCalled = true
+	if m.startError != nil {
+		return nil, nil, m.startError
+	}
+	return m.startReturn, nil, nil
+}
+
 func (m *MockPTYService) SetSize(file *os.File, cols, rows int) error {
 	m.setSizeCalled = true
 	m.setSizeCols = cols
 	m.setSizeRows = rows
 	return m.setSizeError
+}
+
+type TrackingPTYService struct {
+	startWithConfigCalled bool
+}
+
+func (s *TrackingPTYService) Start(_ string) (*os.File, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	if closeErr := writer.Close(); closeErr != nil {
+		return nil, closeErr
+	}
+	return reader, nil
+}
+
+func (s *TrackingPTYService) StartWithConfig(
+	_ string,
+	_ string,
+	_ map[string]string,
+) (*os.File, *exec.Cmd, error) {
+	s.startWithConfigCalled = true
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	if closeErr := writer.Close(); closeErr != nil {
+		return nil, nil, closeErr
+	}
+	return reader, nil, nil
+}
+
+func (s *TrackingPTYService) SetSize(_ *os.File, _, _ int) error {
+	return nil
 }
 
 var _ = Describe("InMemoryHistory", func() {
@@ -190,6 +237,52 @@ var _ = Describe("SessionManager", func() {
 		It("should successfully close with no sessions", func() {
 			err := manager.CloseAll()
 			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+})
+
+var _ = Describe("Session backends", func() {
+	Context("When selecting a backend", func() {
+		It("should default to PTY when a custom PTY service is provided", func() {
+			ptySvc := &TrackingPTYService{}
+
+			session, err := NewTerminalSession(SessionConfig{
+				ID:          "backend-default-pty",
+				Name:        "backend-default-pty",
+				HistorySize: 64,
+				PTYService:  ptySvc,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			defer session.Close()
+
+			metadata := session.GetMetadata()
+			Expect(metadata.Backend).To(Equal(SessionBackendPTY))
+			Expect(metadata.BackendFallback).To(BeEmpty())
+			Expect(ptySvc.startWithConfigCalled).To(BeTrue())
+		})
+
+		It("should fall back to PTY when tmux is requested but unavailable", func() {
+			ptySvc := &TrackingPTYService{}
+			originalPath := os.Getenv("PATH")
+			Expect(os.Setenv("PATH", "")).To(Succeed())
+			defer func() {
+				Expect(os.Setenv("PATH", originalPath)).To(Succeed())
+			}()
+
+			session, err := NewTerminalSession(SessionConfig{
+				ID:          "backend-tmux-fallback",
+				Name:        "backend-tmux-fallback",
+				HistorySize: 64,
+				Backend:     SessionBackendTmux,
+				PTYService:  ptySvc,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			defer session.Close()
+
+			metadata := session.GetMetadata()
+			Expect(metadata.Backend).To(Equal(SessionBackendPTY))
+			Expect(metadata.BackendFallback).To(Equal("tmux_not_found"))
+			Expect(ptySvc.startWithConfigCalled).To(BeTrue())
 		})
 	})
 })
@@ -475,12 +568,12 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 					LastActivityAt: time.Now(),
 					ClientCount:    0,
 				},
-				termCols:       80,
-				termRows:       24,
-				clients:        make(map[WebSocketClient]bool),
-				broadcast:      make(chan []byte, 256),
-				orderedClients: make([]WebSocketClient, 0),
-				closed:         false,
+				termCols:        80,
+				termRows:        24,
+				clients:         make(map[WebSocketClient]bool),
+				broadcast:       make(chan []byte, 256),
+				orderedClients:  make([]WebSocketClient, 0),
+				closed:          false,
 				outputRateLimit: make(chan struct{}, 500),
 			}
 
@@ -548,12 +641,12 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 					LastActivityAt: time.Now(),
 					ClientCount:    0,
 				},
-				termCols:       80,
-				termRows:       24,
-				clients:        make(map[WebSocketClient]bool),
-				broadcast:      make(chan []byte, 256),
-				orderedClients: make([]WebSocketClient, 0),
-				closed:         false,
+				termCols:        80,
+				termRows:        24,
+				clients:         make(map[WebSocketClient]bool),
+				broadcast:       make(chan []byte, 256),
+				orderedClients:  make([]WebSocketClient, 0),
+				closed:          false,
 				outputRateLimit: make(chan struct{}, 500),
 			}
 
@@ -581,7 +674,7 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 			// The client should receive some messages but not all (rate limited)
 			// The exact number depends on timing, but should be reasonable
 			receivedCount := len(client.sendChan)
-			// With rate limit of 500/sec and 100 messages over ~10ms, 
+			// With rate limit of 500/sec and 100 messages over ~10ms,
 			// we should receive less than all messages
 			Expect(receivedCount).To(BeNumerically("<", 100), "Rate limiting should drop some messages")
 
@@ -604,12 +697,12 @@ var _ = Describe("Rate Limiting DoS Protection", func() {
 					LastActivityAt: time.Now(),
 					ClientCount:    0,
 				},
-				termCols:       80,
-				termRows:       24,
-				clients:        make(map[WebSocketClient]bool),
-				broadcast:      make(chan []byte, 256),
-				orderedClients: make([]WebSocketClient, 0),
-				closed:         false,
+				termCols:        80,
+				termRows:        24,
+				clients:         make(map[WebSocketClient]bool),
+				broadcast:       make(chan []byte, 256),
+				orderedClients:  make([]WebSocketClient, 0),
+				closed:          false,
 				outputRateLimit: make(chan struct{}, 500),
 			}
 

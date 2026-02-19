@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessions } from "./useSessions";
+import type { SessionBackend } from "./api";
 
 interface CreateSessionDialogProps {
   readonly onClose: () => void;
@@ -15,6 +16,7 @@ export default function CreateSessionDialog({
   const [workingDirectory, setWorkingDirectory] = useState("");
   const [command, setCommand] = useState("");
   const [envVars, setEnvVars] = useState("");
+  const [backend, setBackend] = useState<SessionBackend>("tmux");
   const [loading, setLoading] = useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -45,6 +47,7 @@ export default function CreateSessionDialog({
         workingDirectory.trim() || undefined,
         command.trim() || undefined,
         Object.keys(envVarsMap).length > 0 ? envVarsMap : undefined,
+        backend,
       );
 
       // Close the dialog before navigating
@@ -143,6 +146,29 @@ export default function CreateSessionDialog({
                 className="w-full bg-zinc-950/70 border border-zinc-700/80 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:border-emerald-400 transition-colors"
                 placeholder="npm run dev"
               />
+            </div>
+
+            <div>
+              <label
+                htmlFor="session-backend"
+                className="block text-sm font-medium text-zinc-400 mb-1"
+              >
+                Backend
+              </label>
+              <select
+                id="session-backend"
+                value={backend}
+                onChange={(e) => setBackend(e.target.value as SessionBackend)}
+                className="w-full bg-zinc-950/70 border border-zinc-700/80 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:border-emerald-400 transition-colors"
+              >
+                <option value="tmux">
+                  tmux (recommended for TUI reconnects)
+                </option>
+                <option value="pty">pty (direct shell)</option>
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                Default is tmux. If unavailable, server falls back to pty.
+              </p>
             </div>
 
             <div>

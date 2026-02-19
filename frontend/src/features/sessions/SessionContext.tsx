@@ -1,6 +1,6 @@
 import { createContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import type { SessionInfo } from "./api";
+import type { SessionBackend, SessionInfo } from "./api";
 import { sessionsApi } from "./api";
 import toast from "react-hot-toast";
 
@@ -14,6 +14,7 @@ interface SessionContextType {
     workingDirectory?: string,
     command?: string,
     envVars?: Record<string, string>,
+    backend?: SessionBackend,
   ) => Promise<string>;
   deleteSession: (sessionId: string) => Promise<void>;
   updateSessionName: (sessionId: string, newName: string) => Promise<void>;
@@ -51,6 +52,7 @@ export function SessionProvider({
     workingDirectory?: string,
     command?: string,
     envVars?: Record<string, string>,
+    backend: SessionBackend = "tmux",
   ): Promise<string> => {
     try {
       const response = await sessionsApi.createSession({
@@ -58,6 +60,7 @@ export function SessionProvider({
         working_directory: workingDirectory,
         command,
         env_vars: envVars,
+        backend,
       });
 
       toast.success(`Session "${name}" created successfully`);
