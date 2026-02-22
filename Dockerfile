@@ -47,16 +47,15 @@ ARG USERNAME=ubuntu
 # Create the user
 RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
-
-USER $USERNAME
-ENV HOME=/home/$USERNAME
-WORKDIR $HOME
-
 # Prepare dev environment
 
 # Go
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
     curl -sSL "https://go.dev/dl/go1.26.0.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+
+USER $USERNAME
+ENV HOME=/home/$USERNAME
+WORKDIR $HOME
 
 # Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
