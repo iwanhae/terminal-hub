@@ -18,12 +18,12 @@ A web-based terminal application that provides browser-based access to shell ses
 
 **Linux/macOS:**
 ```bash
-curl -sL "https://github.com/iwanhae/terminal-hub/releases/download/v1.2.0/terminal-hub_1.2.0_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/').tar.gz" | tar xz && ./terminal-hub
+curl -sL "https://github.com/iwanhae/terminal-hub/releases/download/v1.3.0/terminal-hub_1.3.0_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/').tar.gz" | tar xz && ./terminal-hub
 ```
 
 **Windows (PowerShell):**
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/iwanhae/terminal-hub/releases/download/v1.2.0/terminal-hub_1.2.0_windows_amd64.zip" -OutFile "terminal-hub.zip"
+Invoke-WebRequest -Uri "https://github.com/iwanhae/terminal-hub/releases/download/v1.3.0/terminal-hub_1.3.0_windows_amd64.zip" -OutFile "terminal-hub.zip"
 Expand-Archive -Path "terminal-hub.zip" -DestinationPath .
 .\terminal-hub.exe
 ```
