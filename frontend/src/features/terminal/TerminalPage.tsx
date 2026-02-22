@@ -7,6 +7,7 @@ import {
   type LatchedModifierKey,
   type LatchedModifiers,
 } from "./mobileKeySequences";
+import CopyTextModal from "./CopyTextModal";
 import TerminalComponent, { type TerminalHandle } from "./Terminal";
 
 export default function TerminalPage() {
@@ -16,6 +17,8 @@ export default function TerminalPage() {
   const [latchedModifiers, setLatchedModifiers] = useState<LatchedModifiers>(
     DEFAULT_LATCHED_MODIFIERS,
   );
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
+  const [copyModalContent, setCopyModalContent] = useState("");
 
   const trimmedSessionId =
     typeof sessionId === "string" ? sessionId.trim() : "";
@@ -72,6 +75,17 @@ export default function TerminalPage() {
     focusTerminal();
   }, [focusTerminal]);
 
+  const openCopyTextModal = useCallback(() => {
+    const snapshot = terminalRef.current?.getVisiblePlainTextSnapshot() ?? "";
+    setCopyModalContent(snapshot);
+    setCopyModalOpen(true);
+  }, []);
+
+  const closeCopyTextModal = useCallback(() => {
+    setCopyModalOpen(false);
+    focusTerminal();
+  }, [focusTerminal]);
+
   const openMobileMenu = useCallback(() => {
     window.dispatchEvent(new Event(MOBILE_COMMAND_OPEN_EVENT));
   }, []);
@@ -81,6 +95,14 @@ export default function TerminalPage() {
   return (
     <div className="flex-1 flex flex-col w-full bg-black min-h-0 overflow-hidden">
       <div className="flex-1 relative min-h-0">
+        <button
+          type="button"
+          className="absolute right-3 top-3 z-20 hidden rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-sm text-zinc-100 shadow-lg transition-colors hover:bg-zinc-800 md:inline-flex"
+          data-testid="terminal-copy-text-button"
+          onClick={openCopyTextModal}
+        >
+          Copy Text
+        </button>
         <TerminalComponent
           ref={terminalRef}
           wsUrl={wsUrl}
@@ -92,8 +114,14 @@ export default function TerminalPage() {
         latchedModifiers={latchedModifiers}
         onToggleModifier={toggleModifier}
         onSend={send}
+        onCopy={openCopyTextModal}
         onPaste={pasteFromClipboard}
         onOpenMenu={openMobileMenu}
+      />
+      <CopyTextModal
+        open={copyModalOpen}
+        content={copyModalContent}
+        onClose={closeCopyTextModal}
       />
     </div>
   );

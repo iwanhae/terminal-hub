@@ -66,6 +66,16 @@ test("extra keys send websocket input frames", async ({ page, request }) => {
     .toBeTruthy();
 });
 
+test("copy modal opens from mobile palette", async ({ page, request }) => {
+  const sessionId = await createSession(request);
+
+  await page.goto(`/session/${sessionId}`);
+  await page.getByTestId("extra-key-copy").click();
+
+  await expect(page.getByTestId("copy-text-modal")).toBeVisible();
+  await expect(page.getByTestId("copy-text-content")).toBeVisible();
+});
+
 test("latched ctrl applies to the next native keypress", async ({
   page,
   request,

@@ -27,6 +27,7 @@ type MobileTerminalPaletteProps = Readonly<{
   onToggleModifier: (modifier: LatchedModifierKey) => void;
   onSend: (data: string) => void;
   onPaste: () => void;
+  onCopy: () => void;
   onOpenMenu: () => void;
 }>;
 
@@ -93,6 +94,7 @@ export default function MobileTerminalPalette({
   onToggleModifier,
   onSend,
   onPaste,
+  onCopy,
   onOpenMenu,
 }: MobileTerminalPaletteProps) {
   const paletteRef = useRef<HTMLDivElement>(null);
@@ -243,6 +245,13 @@ export default function MobileTerminalPalette({
             <span>Keys</span>
           </div>
           <div className="flex items-center gap-1.5">
+            <MobileCommandButton
+              label="Copy"
+              size="sm"
+              testId="extra-key-copy"
+              onPointerDown={preventFocusSteal}
+              onClick={onCopy}
+            />
             <MobileCommandButton
               label="Paste"
               size="sm"

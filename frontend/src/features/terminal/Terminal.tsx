@@ -26,9 +26,12 @@ export type TerminalHandle = {
   focus: () => void;
   sendInput: (data: string) => void;
   pasteFromClipboard: () => Promise<void>;
+  getVisiblePlainTextSnapshot: () => string;
 };
 
 type ClipboardShortcutAction = "copy" | "paste";
+const ESCAPE_CHAR = "\u001b";
+const BELL_CHAR = "\u0007";
 
 function getClipboardShortcutAction(
   event: KeyboardEvent,
@@ -69,6 +72,149 @@ function handleLatchedModifierInput(
   return false;
 }
 
+function sanitizeTerminalSnapshot(text: string): string {
+  const normalized = stripControlCharacters(
+    stripEscapeSequences(normalizeLineEndings(text)),
+  );
+
+  const lines = normalized.split("\n").map((line) => {
+    return trimTrailingHorizontalWhitespace(line);
+  });
+
+  while (lines.length > 0 && lines.at(-1) === "") {
+    lines.pop();
+  }
+
+  return lines.join("\n");
+}
+
+function normalizeLineEndings(text: string): string {
+  return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+function trimTrailingHorizontalWhitespace(line: string): string {
+  let endIndex = line.length;
+  while (endIndex > 0) {
+    const char = line[endIndex - 1];
+    if (char !== " " && char !== "\t") {
+      break;
+    }
+    endIndex--;
+  }
+
+  return line.slice(0, endIndex);
+}
+
+function stripEscapeSequences(text: string): string {
+  let output = "";
+  let index = 0;
+
+  while (index < text.length) {
+    const currentChar = text[index];
+    if (currentChar !== ESCAPE_CHAR) {
+      output += currentChar;
+      index++;
+      continue;
+    }
+
+    index = consumeEscapeSequence(text, index);
+  }
+
+  return output;
+}
+
+function consumeEscapeSequence(text: string, startIndex: number): number {
+  const nextChar = text[startIndex + 1];
+  if (nextChar === "[") {
+    return consumeCsiSequence(text, startIndex + 2);
+  }
+
+  if (nextChar === "]") {
+    return consumeOscSequence(text, startIndex + 2);
+  }
+
+  if (nextChar != null) {
+    return startIndex + 2;
+  }
+
+  return startIndex + 1;
+}
+
+function consumeCsiSequence(text: string, startIndex: number): number {
+  let index = startIndex;
+
+  while (index < text.length) {
+    const code = text.codePointAt(index);
+    if (code == null) {
+      break;
+    }
+
+    if (code >= 64 && code <= 126) {
+      return index + 1;
+    }
+
+    index++;
+  }
+
+  return index;
+}
+
+function consumeOscSequence(text: string, startIndex: number): number {
+  let index = startIndex;
+
+  while (index < text.length) {
+    const currentChar = text[index];
+    if (currentChar === BELL_CHAR) {
+      return index + 1;
+    }
+
+    if (currentChar === ESCAPE_CHAR && text[index + 1] === "\\") {
+      return index + 2;
+    }
+
+    index++;
+  }
+
+  return index;
+}
+
+function stripControlCharacters(text: string): string {
+  let output = "";
+
+  for (const char of text) {
+    if (char === "\n" || char === "\t") {
+      output += char;
+      continue;
+    }
+
+    const code = char.codePointAt(0);
+    if (code != null && code >= 32 && code !== 127) {
+      output += char;
+    }
+  }
+
+  return output;
+}
+
+function getVisibleBufferTextSnapshot(terminal: Terminal): string {
+  const activeBuffer = terminal.buffer.active;
+  const startLine = Math.max(0, activeBuffer.viewportY);
+  const maxLine = Math.max(0, activeBuffer.length - 1);
+  const endLine = Math.min(maxLine, startLine + terminal.rows - 1);
+
+  if (endLine < startLine) {
+    return "";
+  }
+
+  const lines: string[] = [];
+  for (let lineIndex = startLine; lineIndex <= endLine; lineIndex++) {
+    const line = activeBuffer.getLine(lineIndex);
+    lines.push(line?.translateToString(true) ?? "");
+  }
+
+  return sanitizeTerminalSnapshot(lines.join("\n"));
+}
+
 const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
   ({ wsUrl, latchedModifiers, onConsumeLatchedModifiers }, ref) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -78,6 +224,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const sendInputRef = useRef<(data: string) => void>(() => {});
     const pasteFromClipboardRef = useRef<() => Promise<void>>(async () => {});
+    const getVisiblePlainTextSnapshotRef = useRef<() => string>(() => "");
     const latchedModifiersRef = useRef<LatchedModifiers>(
       latchedModifiers ?? DEFAULT_LATCHED_MODIFIERS,
     );
@@ -136,6 +283,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         focus,
         sendInput: (data: string) => sendInputRef.current(data),
         pasteFromClipboard: () => pasteFromClipboardRef.current(),
+        getVisiblePlainTextSnapshot: () =>
+          getVisiblePlainTextSnapshotRef.current(),
       }),
       [focus],
     );
@@ -596,6 +745,14 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       sendInputRef.current = sendInput;
       pasteFromClipboardRef.current = pasteFromClipboard;
+      getVisiblePlainTextSnapshotRef.current = () => {
+        try {
+          return getVisibleBufferTextSnapshot(terminal);
+        } catch (error) {
+          console.error("Failed to read terminal snapshot:", error);
+          return "";
+        }
+      };
 
       terminal.onData((data) => sendInputRef.current(data));
 
@@ -650,6 +807,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         clearTimeout(initialFitTimeout);
         clearTimeout(resizeTimeout);
         resizeObserver.disconnect();
+        getVisiblePlainTextSnapshotRef.current = () => "";
         terminal.dispose();
         wsRef.current?.close();
       };
