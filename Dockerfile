@@ -35,7 +35,7 @@ RUN go build -o terminal-hub .
 FROM ubuntu:24.04 AS base
 
 RUN apt-get update && \
-    apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip tmux
+    apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip tmux zip
 
 # Non essential tools
 RUN apt-get install -y ripgrep fzf net-tools iproute2 dnsutils
