@@ -11,7 +11,9 @@ interface LoginErrorResponse {
 
 export const authApi = {
   async status(): Promise<AuthStatusResponse> {
-    const response = await apiFetch("/auth/status");
+    const response = await apiFetch("/auth/status", undefined, {
+      skipAuthRedirect: true,
+    });
     if (!response.ok) {
       await throwApiError(response, "Failed to check auth status");
     }
@@ -19,11 +21,17 @@ export const authApi = {
   },
 
   async login(username: string, password: string): Promise<void> {
-    const response = await apiFetch("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
+    const response = await apiFetch(
+      "/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      },
+      {
+        skipAuthRedirect: true,
+      },
+    );
 
     if (!response.ok) {
       const data = (await response.json()) as LoginErrorResponse;
@@ -32,8 +40,14 @@ export const authApi = {
   },
 
   async logout(): Promise<void> {
-    await apiFetch("/auth/logout", {
-      method: "POST",
-    });
+    await apiFetch(
+      "/auth/logout",
+      {
+        method: "POST",
+      },
+      {
+        skipAuthRedirect: true,
+      },
+    );
   },
 };

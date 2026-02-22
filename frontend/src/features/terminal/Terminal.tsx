@@ -15,6 +15,8 @@ import {
   sequenceFromLatchedKey,
   type LatchedModifiers,
 } from "./mobileKeySequences";
+import { apiFetch } from "../../shared/http/client";
+import { dispatchSessionInvalidEvent } from "../auth/sessionEvents";
 
 interface TerminalProps {
   wsUrl: string;
@@ -32,6 +34,10 @@ export type TerminalHandle = {
 type ClipboardShortcutAction = "copy" | "paste";
 const ESCAPE_CHAR = "\u001b";
 const BELL_CHAR = "\u0007";
+
+interface AuthStatusCheckResponse {
+  authenticated: boolean;
+}
 
 function getClipboardShortcutAction(
   event: KeyboardEvent,
@@ -624,6 +630,55 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         );
       };
 
+      const shouldRedirectToLogin = async (): Promise<boolean> => {
+        try {
+          const response = await apiFetch("/auth/status", undefined, {
+            skipAuthRedirect: true,
+          });
+          if (!response.ok) {
+            return false;
+          }
+
+          const data = (await response.json()) as AuthStatusCheckResponse;
+          return data.authenticated === false;
+        } catch {
+          return false;
+        }
+      };
+
+      const handleSocketClose = async (
+        terminalInstance: Terminal,
+        didOpen: boolean,
+      ): Promise<void> => {
+        // Don't reconnect if manually closed (e.g., component unmount)
+        if (isManuallyClosedRef.current) {
+          return;
+        }
+
+        if (!didOpen && (await shouldRedirectToLogin())) {
+          isReconnectingRef.current = false;
+          if (reconnectTimeoutRef.current !== null) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          toast.dismiss("reconnect-toast");
+          dispatchSessionInvalidEvent("ws-auth-failed");
+          return;
+        }
+
+        // Only start reconnection if not already reconnecting
+        if (isReconnectingRef.current) {
+          // Connection closed while reconnecting, trigger next attempt
+          scheduleReconnect();
+        } else {
+          isReconnectingRef.current = true;
+          terminalInstance.write(
+            "\r\n\x1b[31m[SYSTEM] Connection lost. Reconnecting...\x1b[0m\r\n",
+          );
+          scheduleReconnect();
+        }
+      };
+
       // Schedule a reconnection attempt
       const scheduleReconnect = () => {
         const attempt = reconnectAttemptsRef.current;
@@ -660,11 +715,13 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       // Main WebSocket connection function
       const connectWebSocket = () => {
+        let didOpen = false;
         const ws = new WebSocket(wsUrl);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
         ws.onopen = () => {
+          didOpen = true;
           const wasReconnecting = isReconnectingRef.current;
           isReconnectingRef.current = false;
           reconnectAttemptsRef.current = 0;
@@ -692,22 +749,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         };
 
         ws.onclose = () => {
-          // Don't reconnect if manually closed (e.g., component unmount)
-          if (isManuallyClosedRef.current) {
-            return;
-          }
-
-          // Only start reconnection if not already reconnecting
-          if (isReconnectingRef.current) {
-            // Connection closed while reconnecting, trigger next attempt
-            scheduleReconnect();
-          } else {
-            isReconnectingRef.current = true;
-            terminal.write(
-              "\r\n\x1b[31m[SYSTEM] Connection lost. Reconnecting...\x1b[0m\r\n",
-            );
-            scheduleReconnect();
-          }
+          void handleSocketClose(terminal, didOpen);
         };
 
         ws.onerror = (err) => {
