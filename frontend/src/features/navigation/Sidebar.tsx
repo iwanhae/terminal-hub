@@ -1,9 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   useNavigate,
   useLocation,
   type NavigateFunction,
 } from "react-router-dom";
+import {
+  Clock3,
+  FolderOpen,
+  LayoutGrid,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useSessions } from "../sessions/useSessions";
 import { useCrons } from "../crons/useCrons";
 import { useAuth } from "../auth/useAuth";
@@ -94,19 +106,7 @@ function SessionListItem({
             className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-all"
             title="Rename session"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-              />
-            </svg>
+            <Pencil className="w-4 h-4" />
           </button>
           <button
             onClick={(event) => {
@@ -116,19 +116,7 @@ function SessionListItem({
             className="p-1 rounded hover:bg-red-900/30 text-zinc-500 hover:text-red-400 transition-all"
             title="Delete session"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
-              />
-            </svg>
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       )}
@@ -136,6 +124,70 @@ function SessionListItem({
         <div className="w-1 h-4 bg-emerald-400 rounded-full" />
       )}
     </div>
+  );
+}
+
+type SidebarNavButtonProps = Readonly<{
+  label: string;
+  icon: ReactNode;
+  collapsed: boolean;
+  active?: boolean;
+  title?: string;
+  testId?: string;
+  badge?: number;
+  tone?: "default" | "danger";
+  onClick: () => void;
+}>;
+
+type WorkspaceNavItem = Readonly<{
+  key: "dashboard" | "crons" | "files";
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onClick: () => void;
+  testId?: string;
+  badge?: number;
+}>;
+
+function SidebarNavButton({
+  label,
+  icon,
+  collapsed,
+  active = false,
+  title,
+  testId,
+  badge,
+  tone = "default",
+  onClick,
+}: SidebarNavButtonProps) {
+  let colorClassName = "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800";
+  if (active) {
+    colorClassName = "bg-zinc-800 text-zinc-100 ring-1 ring-zinc-700";
+  }
+  if (tone === "danger") {
+    colorClassName = "text-zinc-400 hover:text-red-400 hover:bg-zinc-800";
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center p-2 rounded-md transition-colors ${collapsed ? "justify-center gap-0 px-0" : "gap-3"} ${colorClassName}`}
+      title={title ?? label}
+      data-testid={testId}
+      type="button"
+    >
+      <span className="inline-flex h-5 w-5 items-center justify-center flex-shrink-0">
+        {icon}
+      </span>
+      {!collapsed && (
+        <span className="text-sm font-medium flex-1 text-left">{label}</span>
+      )}
+      {!collapsed && badge !== undefined && badge > 0 && (
+        <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -194,7 +246,7 @@ function MobileCommandMenu({
           />
           <MobileCommandButton
             label="New Session"
-            icon={<span>+</span>}
+            icon={<Plus className="h-4 w-4" />}
             tone="primary"
             size="md"
             className="w-full justify-center"
@@ -233,42 +285,50 @@ function MobileCommandMenu({
           </div>
         </div>
 
-        <div className="space-y-2">
-          <MobileCommandButton
-            label="Files"
-            icon={<span>[F]</span>}
-            className="w-full justify-start"
-            size="md"
-            onClick={() => {
-              onOpenFiles();
-              onClose();
-            }}
-          />
-          <MobileCommandButton
-            label={cronLabel}
-            icon={<span>⏰</span>}
-            className="w-full justify-start"
-            size="md"
-            active={isCronsActive}
-            onClick={() => {
-              onNavigateToCrons();
-              onClose();
-            }}
-          />
-          <MobileCommandButton
-            label="Dashboard"
-            icon={<span>☖</span>}
-            className="w-full justify-start"
-            size="md"
-            active={isDashboardActive}
-            onClick={() => {
-              onNavigateToDashboard();
-              onClose();
-            }}
-          />
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/60">
+          <div className="px-2.5 py-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
+            Workspace
+          </div>
+          <div className="p-2 space-y-2">
+            <MobileCommandButton
+              label="Dashboard"
+              icon={<LayoutGrid className="h-4 w-4" />}
+              className="w-full justify-start"
+              size="md"
+              active={isDashboardActive}
+              onClick={() => {
+                onNavigateToDashboard();
+                onClose();
+              }}
+            />
+            <MobileCommandButton
+              label={cronLabel}
+              icon={<Clock3 className="h-4 w-4" />}
+              className="w-full justify-start"
+              size="md"
+              active={isCronsActive}
+              onClick={() => {
+                onNavigateToCrons();
+                onClose();
+              }}
+            />
+            <MobileCommandButton
+              label="Files Workspace"
+              icon={<FolderOpen className="h-4 w-4" />}
+              className="w-full justify-start"
+              size="md"
+              onClick={() => {
+                onOpenFiles();
+                onClose();
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-zinc-800 pt-3">
           <MobileCommandButton
             label="Logout"
-            icon={<span>⏻</span>}
+            icon={<LogOut className="h-4 w-4" />}
             tone="danger"
             size="md"
             className="w-full justify-start"
@@ -380,6 +440,34 @@ export default function Sidebar({
       });
   };
 
+  const workspaceItems = [
+    {
+      key: "dashboard",
+      label: "Dashboard",
+      icon: <LayoutGrid className="h-4 w-4" />,
+      active: location.pathname === "/",
+      onClick: handleNavigateToDashboard,
+      testId: "dashboard-nav-item",
+    },
+    {
+      key: "crons",
+      label: "Cron Jobs",
+      icon: <Clock3 className="h-4 w-4" />,
+      active: location.pathname === "/crons",
+      onClick: handleNavigateToCrons,
+      testId: "crons-nav-item",
+      badge: crons.length,
+    },
+    {
+      key: "files",
+      label: "Files Workspace",
+      icon: <FolderOpen className="h-4 w-4" />,
+      active: showFilesDrawer,
+      onClick: () => setShowFilesDrawer(true),
+      testId: "files-nav-item",
+    },
+  ] satisfies ReadonlyArray<WorkspaceNavItem>;
+
   return (
     <>
       <div
@@ -408,7 +496,11 @@ export default function Sidebar({
             className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
             title={collapsed ? "Expand" : "Collapse"}
           >
-            {collapsed ? "»" : "«"}
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
           </button>
         </div>
 
@@ -430,26 +522,11 @@ export default function Sidebar({
             className={`w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white p-2 rounded-md shadow-sm transition-all ${collapsed ? "px-0" : ""}`}
             title="Create Session (Cmd/Ctrl+K)"
             data-testid="create-session"
+            type="button"
           >
-            <span className="text-lg leading-none">+</span>
+            <Plus className="h-4 w-4" />
             {!collapsed && (
               <span className="text-sm font-medium">New Session</span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFilesDrawer(true)}
-            className={`w-full flex items-center rounded-md border border-zinc-700 bg-zinc-950 text-zinc-300 p-2 hover:bg-zinc-800 transition-colors ${
-              collapsed ? "justify-center" : "justify-between"
-            }`}
-            title="Open Files Workspace"
-            data-testid="files-nav-item"
-          >
-            <span className="text-sm">[F]</span>
-            {!collapsed && (
-              <span className="text-xs uppercase tracking-wide text-zinc-300">
-                Open Files Workspace
-              </span>
             )}
           </button>
         </div>
@@ -478,68 +555,38 @@ export default function Sidebar({
                   onDelete={handleDeleteSession}
                 />
               ))}
-
-          {/* Cron Jobs Section */}
-          {!collapsed && (
-            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-2 mt-4">
-              Cron Jobs
-            </div>
-          )}
-          <button
-            onClick={handleNavigateToCrons}
-            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${
-              collapsed ? "justify-center gap-0 px-0" : "gap-3"
-            } ${location.pathname === "/crons" ? "bg-zinc-800 text-zinc-100" : ""}`}
-            title="Cron Jobs"
-            data-testid="crons-nav-item"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
-              ⏰
-            </span>
-            {!collapsed && (
-              <span className="text-sm font-medium flex-1 text-left">
-                Cron Jobs
-              </span>
-            )}
-            {!collapsed && crons.length > 0 && (
-              <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
-                {crons.length}
-              </span>
-            )}
-          </button>
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-zinc-800 space-y-1">
-          <button
-            onClick={handleNavigateToDashboard}
-            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors ${
-              collapsed ? "justify-center gap-0 px-0" : "gap-3"
-            } ${location.pathname === "/" ? "bg-zinc-800 text-zinc-100" : ""}`}
-            title="Dashboard"
-            data-testid="dashboard-nav-item"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
-              ☖
-            </span>
-            {!collapsed && (
-              <span className="text-sm font-medium">Dashboard</span>
-            )}
-          </button>
-          <button
-            onClick={() => {
-              void logout();
-            }}
-            className={`w-full flex items-center p-2 rounded-md text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors ${
-              collapsed ? "justify-center gap-0 px-0" : "gap-3"
-            }`}
-            title="Logout"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center text-lg leading-none">
-              ⏻
-            </span>
-            {!collapsed && <span className="text-sm font-medium">Logout</span>}
-          </button>
+        <div className="p-3 border-t border-zinc-800 space-y-2">
+          {!collapsed && (
+            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 pb-1">
+              Workspace
+            </div>
+          )}
+          {workspaceItems.map((item) => (
+            <SidebarNavButton
+              key={item.key}
+              label={item.label}
+              icon={item.icon}
+              collapsed={collapsed}
+              active={item.active}
+              onClick={item.onClick}
+              testId={item.testId}
+              badge={item.badge}
+            />
+          ))}
+          <div className="border-t border-zinc-800/80 pt-2">
+            <SidebarNavButton
+              label="Logout"
+              icon={<LogOut className="h-4 w-4" />}
+              collapsed={collapsed}
+              tone="danger"
+              onClick={() => {
+                void logout();
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -555,7 +602,7 @@ export default function Sidebar({
         <MobileCommandBar floating>
           <MobileCommandButton
             label="Menu"
-            icon={<span>☰</span>}
+            icon={<Menu className="h-4 w-4" />}
             tone="primary"
             size="md"
             className="w-full justify-center"
