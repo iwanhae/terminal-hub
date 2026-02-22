@@ -1,19 +1,23 @@
-import { createContext, useState, useEffect } from "react";
+import { createContext, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import toast from "react-hot-toast";
 import type {
-  CronJob,
   CronExecutionResult,
+  CronJob,
   CreateCronRequest,
   UpdateCronRequest,
 } from "./api";
 import { cronsApi } from "./api";
-import toast from "react-hot-toast";
+
+interface RefreshCronsOptions {
+  readonly silent?: boolean;
+}
 
 interface CronContextType {
   crons: CronJob[];
   loading: boolean;
   error: string | null;
-  refreshCrons: () => Promise<void>;
+  refreshCrons: (options?: RefreshCronsOptions) => Promise<void>;
   createCron: (request: CreateCronRequest) => Promise<string>;
   updateCron: (jobId: string, request: UpdateCronRequest) => Promise<void>;
   deleteCron: (jobId: string) => Promise<void>;
@@ -25,12 +29,21 @@ interface CronContextType {
 
 const CronContext = createContext<CronContextType | undefined>(undefined);
 
-async function fetchCronHistory(jobId: string): Promise<CronExecutionResult[]> {
-  return cronsApi.getCronHistory(jobId).catch((error_: unknown) => {
-    const message =
-      error_ instanceof Error ? error_.message : "Failed to get cron history";
-    toast.error(message);
-    throw error_;
+function getErrorMessage(error_: unknown, fallback: string): string {
+  if (error_ instanceof Error) {
+    return error_.message;
+  }
+
+  return fallback;
+}
+
+function replaceCronJob(list: CronJob[], updatedJob: CronJob): CronJob[] {
+  return list.map((item) => {
+    if (item.id === updatedJob.id) {
+      return updatedJob;
+    }
+
+    return item;
   });
 }
 
@@ -39,111 +52,176 @@ export function CronProvider({ children }: { readonly children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshCrons = async () => {
-    try {
+  const refreshCrons = useCallback(async (options?: RefreshCronsOptions) => {
+    const silent = options?.silent === true;
+
+    if (!silent) {
       setLoading(true);
-      setError(null);
+    }
+
+    try {
       const data = await cronsApi.listCrons();
       setCrons(data);
+      setError(null);
     } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to fetch cron jobs";
+      const message = getErrorMessage(error_, "Failed to fetch cron jobs");
       setError(message);
-      toast.error(message);
+
+      if (!silent) {
+        toast.error(message);
+      }
+
+      throw error_;
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
-  const createCron = async (request: CreateCronRequest): Promise<string> => {
-    try {
-      const response = await cronsApi.createCron(request);
-      toast.success(`Cron job "${request.name}" created successfully`);
-      await refreshCrons();
-      return response.id;
-    } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to create cron job";
-      toast.error(message);
-      throw error_;
-    }
-  };
+  const createCron = useCallback(
+    async (request: CreateCronRequest): Promise<string> => {
+      try {
+        const response = await cronsApi.createCron(request);
 
-  const updateCron = async (
-    jobId: string,
-    request: UpdateCronRequest,
-  ): Promise<void> => {
-    try {
-      await cronsApi.updateCron(jobId, request);
-      toast.success("Cron job updated successfully");
-      await refreshCrons();
-    } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to update cron job";
-      toast.error(message);
-      throw error_;
-    }
-  };
+        setCrons((previous) => {
+          const remaining = previous.filter(
+            (job) => job.id !== response.job.id,
+          );
+          return [response.job, ...remaining];
+        });
 
-  const deleteCron = async (jobId: string): Promise<void> => {
+        setError(null);
+        toast.success(`Cron job "${request.name}" created successfully`);
+        return response.id;
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to create cron job");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [],
+  );
+
+  const updateCron = useCallback(
+    async (jobId: string, request: UpdateCronRequest): Promise<void> => {
+      try {
+        const updatedJob = await cronsApi.updateCron(jobId, request);
+        setCrons((previous) => replaceCronJob(previous, updatedJob));
+        setError(null);
+        toast.success("Cron job updated successfully");
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to update cron job");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [],
+  );
+
+  const deleteCron = useCallback(async (jobId: string): Promise<void> => {
     try {
       await cronsApi.deleteCron(jobId);
+      setCrons((previous) => previous.filter((job) => job.id !== jobId));
+      setError(null);
       toast.success("Cron job deleted successfully");
-      await refreshCrons();
     } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to delete cron job";
+      const message = getErrorMessage(error_, "Failed to delete cron job");
       toast.error(message);
       throw error_;
     }
-  };
-
-  const runCronNow = async (jobId: string): Promise<CronExecutionResult> => {
-    try {
-      const result = await cronsApi.runCronNow(jobId);
-      toast.success("Cron job executed successfully");
-      await refreshCrons();
-      return result;
-    } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to run cron job";
-      toast.error(message);
-      throw error_;
-    }
-  };
-
-  const enableCron = async (jobId: string): Promise<void> => {
-    try {
-      await cronsApi.enableCron(jobId);
-      toast.success("Cron job enabled");
-      await refreshCrons();
-    } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to enable cron job";
-      toast.error(message);
-      throw error_;
-    }
-  };
-
-  const disableCron = async (jobId: string): Promise<void> => {
-    try {
-      await cronsApi.disableCron(jobId);
-      toast.success("Cron job disabled");
-      await refreshCrons();
-    } catch (error_) {
-      const message =
-        error_ instanceof Error ? error_.message : "Failed to disable cron job";
-      toast.error(message);
-      throw error_;
-    }
-  };
-
-  // Auto-refresh every 5 seconds
-  useEffect(() => {
-    void refreshCrons();
-    const interval = setInterval(() => void refreshCrons(), 5000);
-    return () => clearInterval(interval);
   }, []);
+
+  const runCronNow = useCallback(
+    async (jobId: string): Promise<CronExecutionResult> => {
+      try {
+        const result = await cronsApi.runCronNow(jobId);
+        toast.success("Cron job executed successfully");
+        await refreshCrons({ silent: true });
+        return result;
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to run cron job");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [refreshCrons],
+  );
+
+  const enableCron = useCallback(
+    async (jobId: string): Promise<void> => {
+      try {
+        await cronsApi.enableCron(jobId);
+
+        setCrons((previous) =>
+          previous.map((job) => {
+            if (job.id === jobId) {
+              return {
+                ...job,
+                enabled: true,
+              };
+            }
+
+            return job;
+          }),
+        );
+
+        toast.success("Cron job enabled");
+        await refreshCrons({ silent: true });
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to enable cron job");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [refreshCrons],
+  );
+
+  const disableCron = useCallback(
+    async (jobId: string): Promise<void> => {
+      try {
+        await cronsApi.disableCron(jobId);
+
+        setCrons((previous) =>
+          previous.map((job) => {
+            if (job.id === jobId) {
+              return {
+                ...job,
+                enabled: false,
+              };
+            }
+
+            return job;
+          }),
+        );
+
+        toast.success("Cron job disabled");
+        await refreshCrons({ silent: true });
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to disable cron job");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [refreshCrons],
+  );
+
+  const getCronHistory = useCallback(
+    async (jobId: string): Promise<CronExecutionResult[]> => {
+      try {
+        return await cronsApi.getCronHistory(jobId);
+      } catch (error_) {
+        const message = getErrorMessage(error_, "Failed to get cron history");
+        toast.error(message);
+        throw error_;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void refreshCrons().catch(() => {});
+  }, [refreshCrons]);
 
   return (
     <CronContext.Provider
@@ -158,7 +236,7 @@ export function CronProvider({ children }: { readonly children: ReactNode }) {
         runCronNow,
         enableCron,
         disableCron,
-        getCronHistory: fetchCronHistory,
+        getCronHistory,
       }}
     >
       {children}
