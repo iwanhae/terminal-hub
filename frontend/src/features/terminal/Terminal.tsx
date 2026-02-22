@@ -511,6 +511,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           // Check if component is still mounted and refs are valid
           if (
             isManuallyClosedRef.current ||
+            ws !== wsRef.current ||
             !terminalInstanceRef.current ||
             !fitAddonRef.current ||
             ws.readyState !== WebSocket.OPEN
@@ -646,14 +647,32 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         }
       };
 
+      const focusTerminalAfterReconnect = (socket: WebSocket) => {
+        window.setTimeout(() => {
+          if (isManuallyClosedRef.current || socket !== wsRef.current) {
+            return;
+          }
+
+          terminal.focus();
+        }, 0);
+      };
+
       const handleSocketClose = async (
         terminalInstance: Terminal,
+        closingWs: WebSocket,
         didOpen: boolean,
       ): Promise<void> => {
         // Don't reconnect if manually closed (e.g., component unmount)
         if (isManuallyClosedRef.current) {
           return;
         }
+
+        // Ignore stale sockets; only the current active socket can drive reconnect state.
+        if (closingWs !== wsRef.current) {
+          return;
+        }
+
+        wsRef.current = null;
 
         if (!didOpen && (await shouldRedirectToLogin())) {
           isReconnectingRef.current = false;
@@ -663,6 +682,11 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           }
           toast.dismiss("reconnect-toast");
           dispatchSessionInvalidEvent("ws-auth-failed");
+          return;
+        }
+
+        // A newer socket may have been created while auth status was being checked.
+        if (wsRef.current !== null) {
           return;
         }
 
@@ -715,12 +739,26 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       // Main WebSocket connection function
       const connectWebSocket = () => {
+        const activeSocket = wsRef.current;
+        if (
+          activeSocket != null &&
+          (activeSocket.readyState === WebSocket.OPEN ||
+            activeSocket.readyState === WebSocket.CONNECTING)
+        ) {
+          return;
+        }
+
         let didOpen = false;
         const ws = new WebSocket(wsUrl);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
         ws.onopen = () => {
+          if (ws !== wsRef.current) {
+            ws.close();
+            return;
+          }
+
           didOpen = true;
           const wasReconnecting = isReconnectingRef.current;
           isReconnectingRef.current = false;
@@ -737,10 +775,15 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
               id: "reconnect-toast",
               duration: 2000,
             });
+            focusTerminalAfterReconnect(ws);
           }
         };
 
         ws.onmessage = (event) => {
+          if (ws !== wsRef.current) {
+            return;
+          }
+
           // Convert data to Uint8Array
           const dataToWrite = new Uint8Array(event.data);
 
@@ -749,10 +792,14 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         };
 
         ws.onclose = () => {
-          void handleSocketClose(terminal, didOpen);
+          void handleSocketClose(terminal, ws, didOpen);
         };
 
         ws.onerror = (err) => {
+          if (ws !== wsRef.current) {
+            return;
+          }
+
           console.error("WebSocket Error:", err);
           // Note: We don't write to terminal here as onclose will handle it
         };
@@ -768,16 +815,19 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       // Terminal input handling
       const sendInput = (data: string) => {
+        const activeSocket = wsRef.current;
+
+        if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
         // Block input if reconnecting
         if (isReconnectingRef.current) {
-          return;
+          // Guard against stale reconnect state after socket races.
+          isReconnectingRef.current = false;
         }
 
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-          return;
-        }
-
-        wsRef.current.send(
+        activeSocket.send(
           JSON.stringify({
             type: "input",
             data: data,
@@ -851,7 +901,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         resizeObserver.disconnect();
         getVisiblePlainTextSnapshotRef.current = () => "";
         terminal.dispose();
-        wsRef.current?.close();
+        const activeSocket = wsRef.current;
+        wsRef.current = null;
+        activeSocket?.close();
       };
     }, [wsUrl]);
 

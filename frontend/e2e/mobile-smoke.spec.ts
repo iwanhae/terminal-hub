@@ -121,6 +121,45 @@ test("latched ctrl applies to the next native keypress", async ({
     .toBeTruthy();
 });
 
+test("native keyboard input works after reconnect", async ({ page, request }) => {
+  const sessionId = await createSession(request);
+
+  const inputFrames: Array<{ type: string; data?: string }> = [];
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (payload) => {
+      try {
+        const json = JSON.parse(payload);
+        if (json && json.type === "input") inputFrames.push(json);
+      } catch {
+        // ignore non-JSON frames
+      }
+    });
+  });
+
+  await page.goto(`/session/${sessionId}`);
+  await page.getByTestId("terminal-surface").click();
+  await page.keyboard.press("a");
+  await expect
+    .poll(() => inputFrames.some((frame) => frame.data === "a"))
+    .toBeTruthy();
+
+  await page.context().setOffline(true);
+  try {
+    await expect(page.getByText(/Reconnecting\.\.\./)).toBeVisible();
+
+    await page.context().setOffline(false);
+    await expect(page.getByText("Reconnected to terminal")).toBeVisible();
+
+    await page.getByTestId("terminal-surface").click();
+    await page.keyboard.press("b");
+    await expect
+      .poll(() => inputFrames.some((frame) => frame.data === "b"))
+      .toBeTruthy();
+  } finally {
+    await page.context().setOffline(false);
+  }
+});
+
 test("mobile key palette stays inside viewport after resize", async ({
   page,
   request,
