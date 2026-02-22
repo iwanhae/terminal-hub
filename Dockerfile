@@ -17,7 +17,7 @@ COPY frontend/ ./
 RUN npm run build-ci
 
 # Stage 2: Build Go backend
-FROM golang:1.25.5 AS backend-builder
+FROM golang:1.26.0 AS backend-builder
 
 WORKDIR /app
 
@@ -56,7 +56,7 @@ WORKDIR $HOME
 
 # Go
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
-    curl -sSL "https://go.dev/dl/go1.25.6.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+    curl -sSL "https://go.dev/dl/go1.26.0.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
 
 # Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
