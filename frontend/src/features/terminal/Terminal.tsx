@@ -9,9 +9,17 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import toast from "react-hot-toast";
+import {
+  DEFAULT_LATCHED_MODIFIERS,
+  hasLatchedModifiers,
+  sequenceFromLatchedKey,
+  type LatchedModifiers,
+} from "./mobileKeySequences";
 
 interface TerminalProps {
   wsUrl: string;
+  latchedModifiers?: LatchedModifiers;
+  onConsumeLatchedModifiers?: () => void;
 }
 
 export type TerminalHandle = {
@@ -21,7 +29,7 @@ export type TerminalHandle = {
 };
 
 const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
-  ({ wsUrl }, ref) => {
+  ({ wsUrl, latchedModifiers, onConsumeLatchedModifiers }, ref) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstanceRef = useRef<Terminal | null>(null);
@@ -29,6 +37,12 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const sendInputRef = useRef<(data: string) => void>(() => {});
     const pasteFromClipboardRef = useRef<() => Promise<void>>(async () => {});
+    const latchedModifiersRef = useRef<LatchedModifiers>(
+      latchedModifiers ?? DEFAULT_LATCHED_MODIFIERS,
+    );
+    const onConsumeLatchedModifiersRef = useRef<(() => void) | undefined>(
+      onConsumeLatchedModifiers,
+    );
 
     // Touch state tracking for scroll handling
     const touchStateRef = useRef<{
@@ -38,6 +52,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       lastY: number;
       startTime: number;
       isScroll: boolean;
+      pendingWheelDelta: number;
+      lastWheelSentAt: number;
     }>({
       isTracking: false,
       startX: 0,
@@ -45,6 +61,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       lastY: 0,
       startTime: 0,
       isScroll: false,
+      pendingWheelDelta: 0,
+      lastWheelSentAt: 0,
     });
 
     // Reconnection state refs
@@ -61,6 +79,15 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const focus = useCallback(() => {
       terminalInstanceRef.current?.focus();
     }, []);
+
+    useEffect(() => {
+      latchedModifiersRef.current =
+        latchedModifiers ?? DEFAULT_LATCHED_MODIFIERS;
+    }, [latchedModifiers]);
+
+    useEffect(() => {
+      onConsumeLatchedModifiersRef.current = onConsumeLatchedModifiers;
+    }, [onConsumeLatchedModifiers]);
 
     useImperativeHandle(
       ref,
@@ -120,6 +147,28 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       // Capture terminalRef for cleanup (stable reference)
       const terminalDomNode = terminalRef.current;
+      const xtermViewport = terminalDomNode.querySelector(
+        ".xterm-viewport",
+      ) as HTMLElement | null;
+
+      const TOUCH_SCROLL_THRESHOLD = 12;
+      const WHEEL_FLUSH_INTERVAL_MS = 16;
+      const WHEEL_DELTA_MULTIPLIER = 3;
+
+      const dispatchSyntheticWheel = (deltaY: number, touch: Touch) => {
+        if (xtermViewport == null) {
+          return;
+        }
+
+        const wheelEvent = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY,
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+        });
+        xtermViewport.dispatchEvent(wheelEvent);
+      };
 
       // Touch event handlers for scroll support
       const handleTouchStart = (e: TouchEvent) => {
@@ -132,28 +181,36 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           lastY: touch.pageY,
           startTime: Date.now(),
           isScroll: false,
+          pendingWheelDelta: 0,
+          lastWheelSentAt: 0,
         };
       };
 
       const handleTouchMove = (e: TouchEvent) => {
         if (!touchStateRef.current.isTracking || e.touches.length !== 1) return;
 
+        const state = touchStateRef.current;
         const touch = e.touches[0];
-        const deltaY = touch.pageY - touchStateRef.current.lastY;
-        const totalDeltaY = touch.pageY - touchStateRef.current.startY;
+        const deltaY = touch.pageY - state.lastY;
+        const totalDeltaY = touch.pageY - state.startY;
 
-        // 30px threshold to determine if scrolling
-        if (!touchStateRef.current.isScroll && Math.abs(totalDeltaY) > 30) {
-          touchStateRef.current.isScroll = true;
+        if (!state.isScroll && Math.abs(totalDeltaY) > TOUCH_SCROLL_THRESHOLD) {
+          state.isScroll = true;
         }
 
-        if (touchStateRef.current.isScroll) {
+        if (state.isScroll) {
           e.preventDefault();
-          const lineHeight = 20; // fontSize 14 + line height
-          const linesToScroll = Math.round(deltaY / lineHeight);
-          if (linesToScroll !== 0) {
-            terminalInstanceRef.current?.scrollLines(-linesToScroll);
-            touchStateRef.current.lastY = touch.pageY;
+
+          state.pendingWheelDelta += -deltaY * WHEEL_DELTA_MULTIPLIER;
+          state.lastY = touch.pageY;
+
+          const now = Date.now();
+          if (now - state.lastWheelSentAt >= WHEEL_FLUSH_INTERVAL_MS) {
+            if (Math.abs(state.pendingWheelDelta) > 0) {
+              dispatchSyntheticWheel(state.pendingWheelDelta, touch);
+              state.pendingWheelDelta = 0;
+            }
+            state.lastWheelSentAt = now;
           }
         }
       };
@@ -161,9 +218,18 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       const handleTouchEnd = (e: TouchEvent) => {
         if (!touchStateRef.current.isTracking) return;
 
-        const { startX, startY, startTime, isScroll } = touchStateRef.current;
+        const { startX, startY, startTime, isScroll, pendingWheelDelta } =
+          touchStateRef.current;
         const endTime = Date.now();
         const duration = endTime - startTime;
+
+        if (
+          isScroll &&
+          pendingWheelDelta !== 0 &&
+          e.changedTouches.length > 0
+        ) {
+          dispatchSyntheticWheel(pendingWheelDelta, e.changedTouches[0]);
+        }
 
         // Quick tap focuses terminal
         if (!isScroll && duration < 300 && e.changedTouches.length > 0) {
@@ -279,7 +345,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             return;
           }
 
-          if (!navigator.clipboard?.writeText) {
+          if (
+            navigator.clipboard == null ||
+            typeof navigator.clipboard.writeText !== "function"
+          ) {
             toast.error("Clipboard API is not available in this browser");
             return;
           }
@@ -294,7 +363,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       const pasteFromClipboard = async () => {
         try {
-          if (!navigator.clipboard?.readText) {
+          if (
+            navigator.clipboard == null ||
+            typeof navigator.clipboard.readText !== "function"
+          ) {
             toast.error("Clipboard API is not available in this browser");
             return;
           }
@@ -321,30 +393,51 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       }
 
       function handleCustomKeyEvent(event: KeyboardEvent): boolean {
-        const isModifier = event.ctrlKey || event.metaKey;
-        const isShift = event.shiftKey;
-        if (!isModifier || !isShift || event.altKey) {
+        const hasNativeModifier = event.ctrlKey || event.metaKey;
+        const hasShift = event.shiftKey;
+
+        if (hasNativeModifier && hasShift && !event.altKey) {
+          const key = event.key.toLowerCase();
+          if (key === "c") {
+            if (event.type === "keydown") {
+              event.preventDefault();
+              void copySelectionToClipboard();
+            }
+            return false;
+          }
+
+          if (key === "v") {
+            if (event.type === "keydown") {
+              event.preventDefault();
+              void pasteFromClipboard();
+            }
+            return false;
+          }
+        }
+
+        if (event.type !== "keydown") {
           return true;
         }
 
-        const key = event.key.toLowerCase();
-        if (key === "c") {
-          if (event.type === "keydown") {
-            event.preventDefault();
-            void copySelectionToClipboard();
-          }
-          return false;
+        if (event.ctrlKey || event.altKey || event.metaKey) {
+          return true;
         }
 
-        if (key === "v") {
-          if (event.type === "keydown") {
-            event.preventDefault();
-            void pasteFromClipboard();
-          }
-          return false;
+        const modifiers = latchedModifiersRef.current;
+        if (!hasLatchedModifiers(modifiers)) {
+          return true;
         }
 
-        return true;
+        const sequence = sequenceFromLatchedKey(event.key, modifiers);
+        if (sequence == null) {
+          return true;
+        }
+
+        event.preventDefault();
+        sendInputRef.current(sequence);
+        latchedModifiersRef.current = DEFAULT_LATCHED_MODIFIERS;
+        onConsumeLatchedModifiersRef.current?.();
+        return false;
       }
 
       // Calculate exponential backoff delay with max cap

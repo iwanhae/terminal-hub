@@ -49,6 +49,92 @@ test("extra keys send websocket input frames", async ({ page, request }) => {
   await expect
     .poll(() => inputFrames.some((f) => f.data === "\u001B"))
     .toBeTruthy();
+
+  await page.getByTestId("extra-key-shift-tab").click();
+  await expect
+    .poll(() => inputFrames.some((f) => f.data === "\u001B[Z"))
+    .toBeTruthy();
+
+  await page.getByTestId("extra-key-page-up").click();
+  await expect
+    .poll(() => inputFrames.some((f) => f.data === "\u001B[5~"))
+    .toBeTruthy();
+
+  await page.getByTestId("extra-key-page-down").click();
+  await expect
+    .poll(() => inputFrames.some((f) => f.data === "\u001B[6~"))
+    .toBeTruthy();
+});
+
+test("latched ctrl applies to the next native keypress", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+
+  const inputFrames: Array<{ type: string; data?: string }> = [];
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (payload) => {
+      try {
+        const json = JSON.parse(payload);
+        if (json && json.type === "input") inputFrames.push(json);
+      } catch {
+        // ignore non-JSON frames
+      }
+    });
+  });
+
+  await page.goto(`/session/${sessionId}`);
+  await page.getByTestId("terminal-surface").click();
+  await page.getByTestId("extra-key-ctrl").click();
+  await page.keyboard.press("t");
+
+  await expect
+    .poll(() => inputFrames.some((frame) => frame.data === "\u0014"))
+    .toBeTruthy();
+
+  const ctrlFramesCount = inputFrames.filter(
+    (frame) => frame.data === "\u0014",
+  ).length;
+
+  await page.keyboard.press("t");
+  await expect
+    .poll(() => inputFrames.some((frame) => frame.data === "t"))
+    .toBeTruthy();
+
+  await expect
+    .poll(
+      () =>
+        inputFrames.filter((frame) => frame.data === "\u0014").length ===
+        ctrlFramesCount,
+    )
+    .toBeTruthy();
+});
+
+test("mobile key palette stays inside viewport after resize", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+
+  await page.goto(`/session/${sessionId}`);
+  await expect(page.getByTestId("mobile-key-palette")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 500 });
+
+  await expect
+    .poll(async () => {
+      const box = await page.getByTestId("mobile-key-palette").boundingBox();
+      if (box == undefined) return false;
+
+      return (
+        box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= 391 &&
+        box.y + box.height <= 501
+      );
+    })
+    .toBeTruthy();
 });
 
 test("PWA artifacts exist and SW controls after reload", async ({ page, request }) => {
