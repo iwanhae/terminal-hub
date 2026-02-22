@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -66,10 +65,18 @@ func (c *WebSocketClientImpl) Close() error {
 var sessionManager *terminal.SessionManager
 var cronManager *cron.CronManager
 
-var (
-	errBrowseSessionNotFound = errors.New("session not found")
-	errBrowsePathOutsideRoot = errors.New("path outside session root")
+const (
+	uploadPathHeader      = "X-Terminal-Hub-Upload-Path"
+	uploadFilenameHeader  = "X-Terminal-Hub-Upload-Filename"
+	uploadOverwriteHeader = "X-Terminal-Hub-Upload-Overwrite"
+	uploadCopyBufferSize  = 64 * 1024
 )
+
+var uploadCopyBufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, uploadCopyBufferSize)
+	},
+}
 
 // -- WebSocket --
 
@@ -480,34 +487,22 @@ func handleFileBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
-	if sessionID == "" {
-		http.Error(w, "Session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	rootPath, err := resolveSessionBrowseRoot(sessionID)
+	browseRoot, err := os.Getwd()
 	if err != nil {
-		if errors.Is(err, errBrowseSessionNotFound) {
-			http.Error(w, "Session not found", http.StatusNotFound)
-			return
-		}
-
 		log.Printf("Error resolving browse root: %v", err)
 		http.Error(w, "Failed to resolve browse root", http.StatusInternalServerError)
 		return
 	}
+	browseRoot = filepath.Clean(browseRoot)
 
 	requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
-	targetPath, err := resolveBrowsePath(rootPath, requestedPath)
-	if err != nil {
-		if errors.Is(err, errBrowsePathOutsideRoot) {
-			http.Error(w, "Path is outside allowed root", http.StatusForbidden)
+	targetPath := browseRoot
+	if requestedPath != "" {
+		targetPath = filepath.Clean(requestedPath)
+		if !filepath.IsAbs(targetPath) {
+			http.Error(w, "Path must be absolute", http.StatusBadRequest)
 			return
 		}
-
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
 	}
 
 	targetInfo, err := os.Stat(targetPath)
@@ -569,15 +564,15 @@ func handleFileBrowse(w http.ResponseWriter, r *http.Request) {
 	})
 
 	parentPath := ""
-	if targetPath != rootPath {
+	if targetPath != string(filepath.Separator) {
 		parentCandidate := filepath.Dir(targetPath)
-		if isPathWithinRoot(rootPath, parentCandidate) {
+		if parentCandidate != targetPath {
 			parentPath = parentCandidate
 		}
 	}
 
 	response := fileBrowseResponse{
-		Root:    rootPath,
+		Root:    browseRoot,
 		Current: targetPath,
 		Parent:  parentPath,
 		Entries: entries,
@@ -591,89 +586,6 @@ func handleFileBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func resolveSessionBrowseRoot(sessionID string) (string, error) {
-	if sessionManager == nil {
-		return "", errors.New("session manager is not initialized")
-	}
-
-	sess, ok := sessionManager.Get(sessionID)
-	if !ok {
-		return "", errBrowseSessionNotFound
-	}
-
-	rootPath := strings.TrimSpace(sess.GetMetadata().WorkingDirectory)
-	if rootPath == "" {
-		var err error
-		rootPath, err = os.Getwd()
-		if err != nil {
-			return "", err
-		}
-	}
-
-	cleanRoot, err := normalizeAbsolutePath(rootPath)
-	if err != nil {
-		return "", err
-	}
-
-	rootInfo, err := os.Stat(cleanRoot)
-	if os.IsNotExist(err) {
-		return "", err
-	}
-	if err != nil {
-		return "", err
-	}
-	if !rootInfo.IsDir() {
-		return "", errors.New("session root is not a directory")
-	}
-
-	return cleanRoot, nil
-}
-
-func normalizeAbsolutePath(path string) (string, error) {
-	cleanPath := filepath.Clean(path)
-	if cleanPath == "" || cleanPath == "." {
-		return "", errors.New("path is required")
-	}
-
-	if !filepath.IsAbs(cleanPath) {
-		absPath, err := filepath.Abs(cleanPath)
-		if err != nil {
-			return "", err
-		}
-		cleanPath = absPath
-	}
-
-	return cleanPath, nil
-}
-
-func resolveBrowsePath(rootPath string, requestedPath string) (string, error) {
-	targetPath := rootPath
-	if requestedPath != "" {
-		normalizedPath, err := normalizeAbsolutePath(requestedPath)
-		if err != nil {
-			return "", err
-		}
-		targetPath = normalizedPath
-	}
-
-	if !isPathWithinRoot(rootPath, targetPath) {
-		return "", errBrowsePathOutsideRoot
-	}
-
-	return targetPath, nil
-}
-
-func isPathWithinRoot(rootPath string, targetPath string) bool {
-	relativePath, err := filepath.Rel(rootPath, targetPath)
-	if err != nil {
-		return false
-	}
-
-	return relativePath == "." ||
-		(relativePath != ".." &&
-			!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)))
-}
-
 // handleFileUpload handles POST /api/upload
 func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -681,14 +593,14 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uploadPath := r.URL.Query().Get("path")
+	uploadPath := strings.TrimSpace(r.Header.Get(uploadPathHeader))
 	if uploadPath == "" {
 		http.Error(w, "Upload path is required", http.StatusBadRequest)
 		return
 	}
 
-	rawFilename := r.URL.Query().Get("filename")
-	if strings.TrimSpace(rawFilename) == "" {
+	rawFilename := strings.TrimSpace(r.Header.Get(uploadFilenameHeader))
+	if rawFilename == "" {
 		http.Error(w, "Filename is required", http.StatusBadRequest)
 		return
 	}
@@ -724,7 +636,29 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetPath := filepath.Join(cleanPath, filename)
-	overwrite := strings.EqualFold(r.URL.Query().Get("overwrite"), "true")
+	overwrite := strings.EqualFold(
+		strings.TrimSpace(r.Header.Get(uploadOverwriteHeader)),
+		"true",
+	)
+
+	overwritten := false
+	targetInfo, targetErr := os.Stat(targetPath)
+	if targetErr == nil {
+		if targetInfo.IsDir() {
+			http.Error(w, "Upload target cannot be a directory", http.StatusBadRequest)
+			return
+		}
+		overwritten = true
+	} else if !os.IsNotExist(targetErr) {
+		log.Printf("Error checking upload target file: %v", targetErr)
+		http.Error(w, "Failed to access upload target", http.StatusInternalServerError)
+		return
+	}
+
+	if overwritten && !overwrite {
+		http.Error(w, "File already exists", http.StatusConflict)
+		return
+	}
 
 	flags := os.O_CREATE | os.O_WRONLY
 	if overwrite {
@@ -744,7 +678,10 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	written, err := io.Copy(targetFile, r.Body)
+	copyBuffer := uploadCopyBufferPool.Get().([]byte)
+	defer uploadCopyBufferPool.Put(copyBuffer)
+
+	written, err := io.CopyBuffer(targetFile, r.Body, copyBuffer)
 	closeErr := targetFile.Close()
 	if err != nil {
 		_ = os.Remove(targetPath)
@@ -761,9 +698,10 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"path":     targetPath,
-		"filename": filename,
-		"size":     written,
+		"path":        targetPath,
+		"filename":    filename,
+		"size":        written,
+		"overwritten": overwritten,
 	}); err != nil {
 		log.Printf("Error encoding upload response: %v", err)
 	}

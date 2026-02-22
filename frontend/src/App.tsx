@@ -8,6 +8,7 @@ import Sidebar from "./features/navigation/Sidebar";
 import SessionGrid from "./features/sessions/SessionGrid";
 import TerminalPage from "./features/terminal/TerminalPage";
 import CronPage from "./features/crons/CronPage";
+import FilesPage from "./features/files/FilesPage";
 import LoginPage from "./features/auth/LoginPage";
 import { Toaster } from "react-hot-toast";
 
@@ -48,6 +49,7 @@ function App() {
                             element={<TerminalPage />}
                           />
                           <Route path="/crons" element={<CronPage />} />
+                          <Route path="/files" element={<FilesPage />} />
                         </Routes>
                       </main>
                     </div>

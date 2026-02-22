@@ -2,13 +2,39 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type fileUploadTestResponse struct {
+	Path        string `json:"path"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	Overwritten bool   `json:"overwritten"`
+}
+
+func newUploadRequest(
+	t *testing.T,
+	uploadPath string,
+	filename string,
+	overwrite bool,
+	body []byte,
+) *http.Request {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", bytes.NewReader(body))
+	req.Header.Set(uploadPathHeader, uploadPath)
+	req.Header.Set(uploadFilenameHeader, filename)
+	if overwrite {
+		req.Header.Set(uploadOverwriteHeader, "true")
+	}
+
+	return req
+}
 
 func TestHandleFileUploadStreamsBodyToFile(t *testing.T) {
 	t.Parallel()
@@ -16,17 +42,22 @@ func TestHandleFileUploadStreamsBodyToFile(t *testing.T) {
 	tempDir := t.TempDir()
 	payload := bytes.Repeat([]byte("stream-data-"), 200_000)
 
-	params := url.Values{
-		"path":     []string{tempDir},
-		"filename": []string{"streamed.bin"},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/upload?"+params.Encode(), bytes.NewReader(payload))
+	req := newUploadRequest(t, tempDir, "streamed.bin", false, payload)
 	rec := httptest.NewRecorder()
 
 	handleFileUpload(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response fileUploadTestResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("failed decoding response: %v", err)
+	}
+
+	if response.Overwritten {
+		t.Fatalf("expected overwritten=false for new file upload")
 	}
 
 	savedPath := filepath.Join(tempDir, "streamed.bin")
@@ -49,11 +80,7 @@ func TestHandleFileUploadConflictAndOverwrite(t *testing.T) {
 		t.Fatalf("failed creating seed file: %v", err)
 	}
 
-	params := url.Values{
-		"path":     []string{tempDir},
-		"filename": []string{"target.txt"},
-	}
-	conflictReq := httptest.NewRequest(http.MethodPost, "/api/upload?"+params.Encode(), bytes.NewReader([]byte("new-data")))
+	conflictReq := newUploadRequest(t, tempDir, "target.txt", false, []byte("new-data"))
 	conflictRec := httptest.NewRecorder()
 	handleFileUpload(conflictRec, conflictReq)
 
@@ -61,13 +88,20 @@ func TestHandleFileUploadConflictAndOverwrite(t *testing.T) {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusConflict, conflictRec.Code, conflictRec.Body.String())
 	}
 
-	params.Set("overwrite", "true")
-	overwriteReq := httptest.NewRequest(http.MethodPost, "/api/upload?"+params.Encode(), bytes.NewReader([]byte("new-data")))
+	overwriteReq := newUploadRequest(t, tempDir, "target.txt", true, []byte("new-data"))
 	overwriteRec := httptest.NewRecorder()
 	handleFileUpload(overwriteRec, overwriteReq)
 
 	if overwriteRec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, overwriteRec.Code, overwriteRec.Body.String())
+	}
+
+	var response fileUploadTestResponse
+	if err := json.NewDecoder(overwriteRec.Body).Decode(&response); err != nil {
+		t.Fatalf("failed decoding response: %v", err)
+	}
+	if !response.Overwritten {
+		t.Fatalf("expected overwritten=true when existing file is replaced")
 	}
 
 	updatedData, err := os.ReadFile(targetPath)
@@ -82,11 +116,7 @@ func TestHandleFileUploadConflictAndOverwrite(t *testing.T) {
 func TestHandleFileUploadRejectsRelativePath(t *testing.T) {
 	t.Parallel()
 
-	params := url.Values{
-		"path":     []string{"relative/path"},
-		"filename": []string{"file.txt"},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/upload?"+params.Encode(), bytes.NewReader([]byte("data")))
+	req := newUploadRequest(t, "relative/path", "file.txt", false, []byte("data"))
 	rec := httptest.NewRecorder()
 
 	handleFileUpload(rec, req)
@@ -96,13 +126,25 @@ func TestHandleFileUploadRejectsRelativePath(t *testing.T) {
 	}
 }
 
-func TestHandleFileUploadRequiresFilename(t *testing.T) {
+func TestHandleFileUploadRequiresFilenameHeader(t *testing.T) {
 	t.Parallel()
 
-	params := url.Values{
-		"path": []string{t.TempDir()},
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", bytes.NewReader([]byte("data")))
+	req.Header.Set(uploadPathHeader, t.TempDir())
+	rec := httptest.NewRecorder()
+
+	handleFileUpload(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/upload?"+params.Encode(), bytes.NewReader([]byte("data")))
+}
+
+func TestHandleFileUploadRequiresPathHeader(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", bytes.NewReader([]byte("data")))
+	req.Header.Set(uploadFilenameHeader, "file.txt")
 	rec := httptest.NewRecorder()
 
 	handleFileUpload(rec, req)

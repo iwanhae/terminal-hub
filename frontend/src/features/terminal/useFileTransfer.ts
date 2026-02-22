@@ -65,18 +65,13 @@ async function sendUploadRequest(
   uploadFilename: string,
   overwrite: boolean,
 ): Promise<Response> {
-  const params = new URLSearchParams({
-    path: uploadPath,
-    filename: uploadFilename,
-  });
-  if (overwrite) {
-    params.set("overwrite", "true");
-  }
-
-  return apiFetch(`/upload?${params.toString()}`, {
+  return apiFetch("/upload", {
     method: "POST",
     headers: {
       "Content-Type": file.type || "application/octet-stream",
+      "X-Terminal-Hub-Upload-Path": uploadPath,
+      "X-Terminal-Hub-Upload-Filename": uploadFilename,
+      "X-Terminal-Hub-Upload-Overwrite": overwrite ? "true" : "false",
     },
     body: file,
   });

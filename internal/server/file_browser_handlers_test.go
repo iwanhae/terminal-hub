@@ -2,51 +2,13 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
-
-	"github.com/iwanhae/terminal-hub/terminal"
 )
-
-type browseTestPTYService struct{}
-
-func (s *browseTestPTYService) Start(_ string) (*os.File, error) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	if closeErr := writer.Close(); closeErr != nil {
-		return nil, closeErr
-	}
-	return reader, nil
-}
-
-func (s *browseTestPTYService) StartWithConfig(
-	_ string,
-	_ string,
-	_ map[string]string,
-) (*os.File, *exec.Cmd, error) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		return nil, nil, err
-	}
-	if closeErr := writer.Close(); closeErr != nil {
-		return nil, nil, closeErr
-	}
-	return reader, nil, nil
-}
-
-func (s *browseTestPTYService) SetSize(_ *os.File, _, _ int) error {
-	return nil
-}
 
 type fileBrowseTestResponse struct {
 	Root    string                `json:"root"`
@@ -62,59 +24,23 @@ type fileBrowseTestEntry struct {
 	Size        int64  `json:"size"`
 }
 
-func setupBrowseTestSessionManager(t *testing.T) {
-	t.Helper()
+func TestHandleFileBrowseListsEntriesForAbsolutePath(t *testing.T) {
+	t.Parallel()
 
-	originalManager := sessionManager
-	testManager := terminal.NewSessionManager()
-	sessionManager = testManager
-
-	t.Cleanup(func() {
-		_ = testManager.CloseAll()
-		sessionManager = originalManager
-	})
-}
-
-func createBrowseTestSession(t *testing.T, workingDirectory string) string {
-	t.Helper()
-
-	sessionID := fmt.Sprintf(
-		"%s-%d",
-		strings.ReplaceAll(t.Name(), "/", "-"),
-		time.Now().UnixNano(),
-	)
-
-	_, err := sessionManager.CreateSession(terminal.SessionConfig{
-		ID:               sessionID,
-		Name:             "Browse Test",
-		WorkingDirectory: workingDirectory,
-		HistorySize:      256,
-		PTYService:       &browseTestPTYService{},
-	})
-	if err != nil {
-		t.Fatalf("failed creating test session: %v", err)
-	}
-
-	return sessionID
-}
-
-func TestHandleFileBrowseListsEntriesWithinSessionRoot(t *testing.T) {
-	setupBrowseTestSessionManager(t)
-
-	rootDir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(rootDir, "subdir"), 0o755); err != nil {
+	targetDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(targetDir, "subdir"), 0o755); err != nil {
 		t.Fatalf("failed creating subdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(rootDir, "alpha.txt"), []byte("hello"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetDir, "alpha.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatalf("failed creating file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(rootDir, ".hidden.txt"), []byte("hidden"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(targetDir, ".hidden.txt"), []byte("hidden"), 0o644); err != nil {
 		t.Fatalf("failed creating hidden file: %v", err)
 	}
 
-	sessionID := createBrowseTestSession(t, rootDir)
-
-	params := url.Values{"sessionId": []string{sessionID}}
+	params := url.Values{
+		"path": []string{targetDir},
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
 	rec := httptest.NewRecorder()
 	handleFileBrowse(rec, req)
@@ -128,12 +54,19 @@ func TestHandleFileBrowseListsEntriesWithinSessionRoot(t *testing.T) {
 		t.Fatalf("failed decoding response: %v", err)
 	}
 
-	expectedRoot := filepath.Clean(rootDir)
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed reading cwd: %v", err)
+	}
+
+	expectedRoot := filepath.Clean(workingDirectory)
 	if response.Root != expectedRoot {
 		t.Fatalf("expected root %q, got %q", expectedRoot, response.Root)
 	}
-	if response.Current != expectedRoot {
-		t.Fatalf("expected current %q, got %q", expectedRoot, response.Current)
+
+	expectedCurrent := filepath.Clean(targetDir)
+	if response.Current != expectedCurrent {
+		t.Fatalf("expected current %q, got %q", expectedCurrent, response.Current)
 	}
 
 	if len(response.Entries) != 2 {
@@ -148,17 +81,15 @@ func TestHandleFileBrowseListsEntriesWithinSessionRoot(t *testing.T) {
 }
 
 func TestHandleFileBrowseIncludesHiddenWhenRequested(t *testing.T) {
-	setupBrowseTestSessionManager(t)
+	t.Parallel()
 
-	rootDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(rootDir, ".hidden.txt"), []byte("hidden"), 0o644); err != nil {
+	targetDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(targetDir, ".hidden.txt"), []byte("hidden"), 0o644); err != nil {
 		t.Fatalf("failed creating hidden file: %v", err)
 	}
 
-	sessionID := createBrowseTestSession(t, rootDir)
-
 	params := url.Values{
-		"sessionId":  []string{sessionID},
+		"path":       []string{targetDir},
 		"showHidden": []string{"true"},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
@@ -179,63 +110,25 @@ func TestHandleFileBrowseIncludesHiddenWhenRequested(t *testing.T) {
 	}
 }
 
-func TestHandleFileBrowseRejectsPathOutsideRoot(t *testing.T) {
-	setupBrowseTestSessionManager(t)
-
-	rootDir := t.TempDir()
-	sessionID := createBrowseTestSession(t, rootDir)
-
-	params := url.Values{
-		"sessionId": []string{sessionID},
-		"path":      []string{filepath.Dir(rootDir)},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
-	rec := httptest.NewRecorder()
-	handleFileBrowse(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected status %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
-	}
-}
-
 func TestHandleFileBrowseRejectsRelativePath(t *testing.T) {
-	setupBrowseTestSessionManager(t)
-
-	rootDir := t.TempDir()
-	sessionID := createBrowseTestSession(t, rootDir)
+	t.Parallel()
 
 	params := url.Values{
-		"sessionId": []string{sessionID},
-		"path":      []string{"relative/path"},
+		"path": []string{"relative/path"},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
 	rec := httptest.NewRecorder()
 	handleFileBrowse(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected status %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
 }
 
-func TestHandleFileBrowseReturnsNotFoundForUnknownSession(t *testing.T) {
-	setupBrowseTestSessionManager(t)
+func TestHandleFileBrowseDefaultsToServerWorkingDirectory(t *testing.T) {
+	t.Parallel()
 
-	params := url.Values{"sessionId": []string{"missing"}}
-	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
-	rec := httptest.NewRecorder()
-	handleFileBrowse(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected status %d, got %d: %s", http.StatusNotFound, rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleFileBrowseFallsBackToServerWorkingDirectory(t *testing.T) {
-	setupBrowseTestSessionManager(t)
-
-	sessionID := createBrowseTestSession(t, "")
-	params := url.Values{"sessionId": []string{sessionID}}
-	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/files/browse", nil)
 	rec := httptest.NewRecorder()
 	handleFileBrowse(rec, req)
 
@@ -255,5 +148,29 @@ func TestHandleFileBrowseFallsBackToServerWorkingDirectory(t *testing.T) {
 	expectedRoot := filepath.Clean(workingDirectory)
 	if response.Root != expectedRoot {
 		t.Fatalf("expected root %q, got %q", expectedRoot, response.Root)
+	}
+	if response.Current != expectedRoot {
+		t.Fatalf("expected current %q, got %q", expectedRoot, response.Current)
+	}
+}
+
+func TestHandleFileBrowseRejectsFilePath(t *testing.T) {
+	t.Parallel()
+
+	targetDir := t.TempDir()
+	targetFile := filepath.Join(targetDir, "not-a-directory.txt")
+	if err := os.WriteFile(targetFile, []byte("content"), 0o644); err != nil {
+		t.Fatalf("failed creating test file: %v", err)
+	}
+
+	params := url.Values{
+		"path": []string{targetFile},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/files/browse?"+params.Encode(), nil)
+	rec := httptest.NewRecorder()
+	handleFileBrowse(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
 }

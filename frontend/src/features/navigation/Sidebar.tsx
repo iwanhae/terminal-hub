@@ -22,9 +22,6 @@ import { useAuth } from "../auth/useAuth";
 import CreateSessionDialog from "../sessions/CreateSessionDialog";
 import RenameSessionDialog from "../sessions/RenameSessionDialog";
 import type { SessionInfo } from "../sessions/api";
-import FileTransferPanel from "../terminal/FileTransferPanel";
-import FileTransferDrawer from "../terminal/FileTransferDrawer";
-import { useFileTransfer } from "../terminal/useFileTransfer";
 import MobileCommandBar from "../../components/ui/MobileCommandBar";
 import MobileCommandButton from "../../components/ui/MobileCommandButton";
 import MobileCommandSheet from "../../components/ui/MobileCommandSheet";
@@ -203,10 +200,10 @@ type MobileCommandMenuProps = Readonly<{
   onNavigate: (id: string) => void;
   onNavigateToDashboard: () => void;
   onNavigateToCrons: () => void;
+  onNavigateToFiles: () => void;
   onRename: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   onCreateSession: () => void;
-  onOpenFiles: () => void;
   onLogout: () => void;
 }>;
 
@@ -222,14 +219,15 @@ function MobileCommandMenu({
   onNavigate,
   onNavigateToDashboard,
   onNavigateToCrons,
+  onNavigateToFiles,
   onRename,
   onDelete,
   onCreateSession,
-  onOpenFiles,
   onLogout,
 }: MobileCommandMenuProps) {
   const isDashboardActive = currentPathname === "/";
   const isCronsActive = currentPathname === "/crons";
+  const isFilesActive = currentPathname === "/files";
   const cronLabel =
     cronCount > 0 ? `Cron Jobs (${String(cronCount)})` : "Cron Jobs";
 
@@ -317,8 +315,9 @@ function MobileCommandMenu({
               icon={<FolderOpen className="h-4 w-4" />}
               className="w-full justify-start"
               size="md"
+              active={isFilesActive}
               onClick={() => {
-                onOpenFiles();
+                onNavigateToFiles();
                 onClose();
               }}
             />
@@ -377,12 +376,9 @@ export default function Sidebar({
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [showFilesDrawer, setShowFilesDrawer] = useState(false);
-  const [showFilesSheet, setShowFilesSheet] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const transfer = useFileTransfer("/tmp");
 
   const currentSessionId = getCurrentSessionId(location.pathname);
   const isTerminalRoute = location.pathname.startsWith("/session/");
@@ -407,10 +403,6 @@ export default function Sidebar({
   const filteredSessions = sessions.filter((session) =>
     session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-  const activeTransferSession =
-    sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
-  const transferSessionId = activeTransferSession?.id ?? null;
-  const transferSessionName = activeTransferSession?.metadata.name ?? "None";
 
   const handleNavigate = (sessionId: string) => {
     navigateWithHandler(navigate, `/session/${sessionId}`, onNavigate);
@@ -422,6 +414,10 @@ export default function Sidebar({
 
   const handleNavigateToCrons = () => {
     navigateWithHandler(navigate, "/crons", onNavigate);
+  };
+
+  const handleNavigateToFiles = () => {
+    navigateWithHandler(navigate, "/files", onNavigate);
   };
 
   const handleDeleteSession = (sessionId: string, sessionName: string) => {
@@ -462,8 +458,8 @@ export default function Sidebar({
       key: "files",
       label: "Files Workspace",
       icon: <FolderOpen className="h-4 w-4" />,
-      active: showFilesDrawer,
-      onClick: () => setShowFilesDrawer(true),
+      active: location.pathname === "/files",
+      onClick: handleNavigateToFiles,
       testId: "files-nav-item",
     },
   ] satisfies ReadonlyArray<WorkspaceNavItem>;
@@ -590,14 +586,6 @@ export default function Sidebar({
         </div>
       </div>
 
-      <FileTransferDrawer
-        open={showFilesDrawer}
-        onClose={() => setShowFilesDrawer(false)}
-        sessionId={transferSessionId}
-        sessionName={transferSessionName}
-        transfer={transfer}
-      />
-
       {!isTerminalRoute && (
         <MobileCommandBar floating>
           <MobileCommandButton
@@ -624,28 +612,14 @@ export default function Sidebar({
         onNavigate={handleNavigate}
         onNavigateToDashboard={handleNavigateToDashboard}
         onNavigateToCrons={handleNavigateToCrons}
+        onNavigateToFiles={handleNavigateToFiles}
         onRename={setRenameSessionId}
         onDelete={handleDeleteSession}
         onCreateSession={() => setShowCreateDialog(true)}
-        onOpenFiles={() => setShowFilesSheet(true)}
         onLogout={() => {
           void logout();
         }}
       />
-
-      <MobileCommandSheet
-        open={showFilesSheet}
-        onClose={() => setShowFilesSheet(false)}
-        title="Files"
-        zIndexClassName="z-[86]"
-      >
-        <FileTransferPanel
-          variant="mobile-sheet"
-          sessionId={transferSessionId}
-          sessionName={transferSessionName}
-          transfer={transfer}
-        />
-      </MobileCommandSheet>
 
       {showCreateDialog && (
         <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
