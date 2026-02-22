@@ -1,15 +1,23 @@
 package terminal
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/creack/pty"
 )
+
+const defaultHistorySize = 4096
+
+var errTmuxUnavailable = errors.New("tmux executable not found")
 
 // InMemoryHistory implements HistoryProvider with an in-memory buffer
 type InMemoryHistory struct {
@@ -64,6 +72,10 @@ type TerminalSession struct {
 	cmd     *exec.Cmd
 	history HistoryProvider
 	ptySvc  PTYService
+	backend SessionBackend
+
+	// tmux-specific state
+	tmuxSessionName string
 
 	// Metadata
 	metadata   SessionMetadata
@@ -98,8 +110,17 @@ type SessionConfig struct {
 	WorkingDirectory string
 	Command          string
 	EnvVars          map[string]string
+	Backend          SessionBackend
 	HistorySize      int
 	PTYService       PTYService
+}
+
+type sessionStartResult struct {
+	ptmx            *os.File
+	cmd             *exec.Cmd
+	backend         SessionBackend
+	backendFallback string
+	tmuxSessionName string
 }
 
 // NewTerminalSession creates a new terminal session
@@ -116,7 +137,7 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 	}
 
 	if config.HistorySize == 0 {
-		config.HistorySize = 4096 // 4KB default
+		config.HistorySize = defaultHistorySize
 	}
 
 	ptySvc := config.PTYService
@@ -124,25 +145,28 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 		ptySvc = &DefaultPTYService{}
 	}
 
-	// Start the shell with PTY
-	ptmx, cmd, err := ptySvc.StartWithConfig(config.Shell, config.WorkingDirectory, config.EnvVars)
+	startResult, err := startSessionProcess(config, ptySvc)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
 	session := &TerminalSession{
-		id:      config.ID,
-		ptyFile: ptmx,
-		cmd:     cmd,
-		history: NewInMemoryHistory(config.HistorySize),
-		ptySvc:  ptySvc,
+		id:              config.ID,
+		ptyFile:         startResult.ptmx,
+		cmd:             startResult.cmd,
+		history:         NewInMemoryHistory(config.HistorySize),
+		ptySvc:          ptySvc,
+		backend:         startResult.backend,
+		tmuxSessionName: startResult.tmuxSessionName,
 		metadata: SessionMetadata{
 			Name:             config.Name,
 			CreatedAt:        now,
 			LastActivityAt:   now,
 			ClientCount:      0,
 			WorkingDirectory: config.WorkingDirectory,
+			Backend:          startResult.backend,
+			BackendFallback:  startResult.backendFallback,
 		},
 		termCols:        80, // Default size
 		termRows:        24,
@@ -170,6 +194,155 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 	}
 
 	return session, nil
+}
+
+func resolveRequestedBackend(config SessionConfig) SessionBackend {
+	backend := SessionBackend(strings.ToLower(strings.TrimSpace(string(config.Backend))))
+	if backend != SessionBackendPTY && backend != SessionBackendTmux {
+		backend = ""
+	}
+
+	if backend == "" {
+		// Tests and custom PTY implementations should remain deterministic.
+		if config.PTYService != nil {
+			return SessionBackendPTY
+		}
+		return SessionBackendTmux
+	}
+
+	return backend
+}
+
+func startSessionProcess(config SessionConfig, ptySvc PTYService) (sessionStartResult, error) {
+	backend := resolveRequestedBackend(config)
+	if backend == SessionBackendTmux {
+		startResult, err := startTmuxSession(config)
+		if err == nil {
+			return startResult, nil
+		}
+
+		fallbackReason := tmuxFallbackReason(err)
+		log.Printf(
+			"Session %s: failed to initialize tmux backend (%v), falling back to pty",
+			config.ID,
+			err,
+		)
+
+		ptmx, cmd, ptyErr := ptySvc.StartWithConfig(
+			config.Shell,
+			config.WorkingDirectory,
+			config.EnvVars,
+		)
+		if ptyErr != nil {
+			return sessionStartResult{}, ptyErr
+		}
+
+		return sessionStartResult{
+			ptmx:            ptmx,
+			cmd:             cmd,
+			backend:         SessionBackendPTY,
+			backendFallback: fallbackReason,
+		}, nil
+	}
+
+	ptmx, cmd, err := ptySvc.StartWithConfig(config.Shell, config.WorkingDirectory, config.EnvVars)
+	if err != nil {
+		return sessionStartResult{}, err
+	}
+
+	return sessionStartResult{
+		ptmx:    ptmx,
+		cmd:     cmd,
+		backend: SessionBackendPTY,
+	}, nil
+}
+
+func startTmuxSession(config SessionConfig) (sessionStartResult, error) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return sessionStartResult{}, errTmuxUnavailable
+	}
+
+	sessionName := sanitizeTmuxSessionName(config.ID)
+	args := []string{"new-session", "-A", "-s", sessionName}
+	if config.WorkingDirectory != "" {
+		args = append(args, "-c", config.WorkingDirectory)
+	}
+
+	// Ensure newly created tmux sessions start in the configured shell.
+	args = append(args, config.Shell)
+
+	cmd := exec.Command("tmux", args...)
+	if config.WorkingDirectory != "" {
+		cmd.Dir = config.WorkingDirectory
+	}
+	cmd.Env = buildCommandEnv(config.EnvVars)
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return sessionStartResult{}, fmt.Errorf("failed to start tmux session: %w", err)
+	}
+
+	return sessionStartResult{
+		ptmx:            ptmx,
+		cmd:             cmd,
+		backend:         SessionBackendTmux,
+		tmuxSessionName: sessionName,
+	}, nil
+}
+
+func sanitizeTmuxSessionName(sessionID string) string {
+	trimmed := strings.TrimSpace(sessionID)
+	if trimmed == "" {
+		return "terminal-hub"
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+	for _, char := range trimmed {
+		if unicode.IsLetter(char) || unicode.IsDigit(char) || char == '-' || char == '_' {
+			builder.WriteRune(char)
+			continue
+		}
+		builder.WriteRune('_')
+	}
+
+	name := builder.String()
+	if name == "" {
+		return "terminal-hub"
+	}
+	return name
+}
+
+func tmuxFallbackReason(err error) string {
+	if errors.Is(err, errTmuxUnavailable) {
+		return "tmux_not_found"
+	}
+	return "tmux_start_failed"
+}
+
+func buildCommandEnv(envVars map[string]string) []string {
+	env := os.Environ()
+
+	// Set default TERM/COLORTERM for consistent terminal capabilities.
+	termSet := false
+	colortermSet := false
+	for key, value := range envVars {
+		env = append(env, key+"="+value)
+		if key == "TERM" {
+			termSet = true
+		}
+		if key == "COLORTERM" {
+			colortermSet = true
+		}
+	}
+	if !termSet {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if !colortermSet {
+		env = append(env, "COLORTERM=truecolor")
+	}
+
+	return env
 }
 
 // ID returns the session identifier
@@ -335,6 +508,13 @@ func (s *TerminalSession) Close() error {
 		}
 	}
 
+	if s.backend == SessionBackendTmux && s.tmuxSessionName != "" {
+		killCmd := exec.Command("tmux", "kill-session", "-t", s.tmuxSessionName)
+		if err := killCmd.Run(); err != nil {
+			log.Printf("Error killing tmux session %q: %v", s.tmuxSessionName, err)
+		}
+	}
+
 	close(s.broadcast)
 
 	return nil
@@ -482,29 +662,7 @@ func (d *DefaultPTYService) StartWithConfig(shell string, workingDir string, env
 		cmd.Dir = workingDir
 	}
 
-	// Start with current environment
-	cmd.Env = os.Environ()
-
-	// Set default TERM to xterm-256color for proper color support
-	// Set COLORTERM to truecolor to advertise 24-bit color support
-	// Users can override these by passing their own values in envVars
-	termSet := false
-	colortermSet := false
-	for k, v := range envVars {
-		cmd.Env = append(cmd.Env, k+"="+v)
-		if k == "TERM" {
-			termSet = true
-		}
-		if k == "COLORTERM" {
-			colortermSet = true
-		}
-	}
-	if !termSet {
-		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
-	}
-	if !colortermSet {
-		cmd.Env = append(cmd.Env, "COLORTERM=truecolor")
-	}
+	cmd.Env = buildCommandEnv(envVars)
 
 	// Start with PTY
 	ptmx, err := pty.Start(cmd)

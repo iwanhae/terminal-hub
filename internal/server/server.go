@@ -293,6 +293,7 @@ func createInitialSession(name string) error {
 	config := terminal.SessionConfig{
 		ID:          uuid.New().String(),
 		Name:        name,
+		Backend:     terminal.SessionBackendTmux,
 		HistorySize: 4096,
 	}
 
@@ -342,6 +343,18 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestedBackend := terminal.SessionBackend(
+		strings.ToLower(strings.TrimSpace(string(req.Backend))),
+	)
+	if requestedBackend == "" {
+		requestedBackend = terminal.SessionBackendTmux
+	}
+	if requestedBackend != terminal.SessionBackendTmux &&
+		requestedBackend != terminal.SessionBackendPTY {
+		http.Error(w, `Backend must be either "tmux" or "pty"`, http.StatusBadRequest)
+		return
+	}
+
 	// Generate a unique session ID
 	sessionID := uuid.New().String()
 
@@ -353,6 +366,7 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		Command:          req.Command,
 		EnvVars:          req.EnvVars,
 		Shell:            req.ShellPath,
+		Backend:          requestedBackend,
 		HistorySize:      4096,
 	}
 

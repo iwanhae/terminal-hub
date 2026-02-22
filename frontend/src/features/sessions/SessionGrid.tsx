@@ -158,6 +158,8 @@ export default function SessionGrid() {
               const hasWorkingDirectory =
                 typeof workingDirectory === "string" &&
                 workingDirectory.trim() !== "";
+              const backend = session.metadata.backend ?? "pty";
+              const backendFallback = session.metadata.backend_fallback;
 
               return (
                 <div
@@ -250,6 +252,15 @@ export default function SessionGrid() {
                         {session.metadata.client_count}
                       </span>
                     </span>
+                    <span className="rounded-full border border-zinc-800/80 bg-zinc-900/70 px-2 py-0.5">
+                      Backend: <span className="text-zinc-200">{backend}</span>
+                    </span>
+                    {backendFallback !== undefined &&
+                      backendFallback !== "" && (
+                        <span className="rounded-full border border-amber-800/50 bg-amber-900/20 px-2 py-0.5 text-amber-300">
+                          Fallback: {backendFallback}
+                        </span>
+                      )}
                     <span className="rounded-full border border-zinc-800/80 bg-zinc-900/70 px-2 py-0.5">
                       Created:{" "}
                       <span className="text-zinc-200">

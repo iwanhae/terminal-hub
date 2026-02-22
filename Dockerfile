@@ -35,8 +35,10 @@ RUN go build -o terminal-hub .
 FROM ubuntu:24.04 AS base
 
 RUN apt-get update && \
-    apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y bash ca-certificates sudo vim git curl htop build-essential python3 python3-pip tmux
+
+# Non essential tools
+RUN apt-get install -y ripgrep fzf net-tools iproute2 dnsutils
 
 # Create a non-root user for running the application
 # Variables
@@ -46,19 +48,23 @@ ARG USERNAME=ubuntu
 RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
+USER $USERNAME
+ENV HOME=/home/$USERNAME
+WORKDIR $HOME
+
 # Prepare dev environment
 
 # Go
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
     curl -sSL "https://go.dev/dl/go1.25.6.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
 
-USER $USERNAME
-ENV HOME=/home/$USERNAME
-WORKDIR $HOME
+# Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Node
+# Node & Bun
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 RUN bash -c "source $HOME/.nvm/nvm.sh && nvm install 24"
+RUN curl -fsSL https://bun.com/install | bash
 
 # Python
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -99,6 +105,8 @@ ARG USERNAME=ubuntu
 ENV HOME=/home/$USERNAME
 WORKDIR $HOME
 ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
+
+COPY tmux.conf $HOME/.tmux.conf
 
 EXPOSE 8081
 

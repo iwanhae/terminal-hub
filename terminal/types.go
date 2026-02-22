@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// SessionBackend indicates which backend powers a terminal session.
+type SessionBackend string
+
+const (
+	// SessionBackendPTY runs a shell directly in a PTY.
+	SessionBackendPTY SessionBackend = "pty"
+	// SessionBackendTmux runs the session via tmux for robust reconnect behavior.
+	SessionBackendTmux SessionBackend = "tmux"
+)
+
 // HistoryProvider defines the interface for terminal output history storage
 type HistoryProvider interface {
 	Write(p []byte) (n int, err error)
@@ -47,20 +57,23 @@ type ClientMessage struct {
 
 // SessionMetadata holds runtime information about a session
 type SessionMetadata struct {
-	Name            string    `json:"name"`
-	CreatedAt       time.Time `json:"created_at"`
-	LastActivityAt  time.Time `json:"last_activity_at"`
-	ClientCount     int       `json:"client_count"`
-	WorkingDirectory string   `json:"working_directory,omitempty"`
+	Name             string         `json:"name"`
+	CreatedAt        time.Time      `json:"created_at"`
+	LastActivityAt   time.Time      `json:"last_activity_at"`
+	ClientCount      int            `json:"client_count"`
+	WorkingDirectory string         `json:"working_directory,omitempty"`
+	Backend          SessionBackend `json:"backend"`
+	BackendFallback  string         `json:"backend_fallback,omitempty"`
 }
 
 // CreateSessionRequest represents a request to create a new session
 type CreateSessionRequest struct {
-	Name            string            `json:"name"`                       // Required: User-friendly name
-	WorkingDirectory string           `json:"working_directory,omitempty"` // Optional: Initial working directory
-	Command         string            `json:"command,omitempty"`           // Optional: Initial command to run
-	EnvVars         map[string]string `json:"env_vars,omitempty"`          // Optional: Environment variables
-	ShellPath       string            `json:"shell_path,omitempty"`        // Optional: Custom shell path
+	Name             string            `json:"name"`                        // Required: User-friendly name
+	WorkingDirectory string            `json:"working_directory,omitempty"` // Optional: Initial working directory
+	Command          string            `json:"command,omitempty"`           // Optional: Initial command to run
+	EnvVars          map[string]string `json:"env_vars,omitempty"`          // Optional: Environment variables
+	ShellPath        string            `json:"shell_path,omitempty"`        // Optional: Custom shell path
+	Backend          SessionBackend    `json:"backend,omitempty"`           // Optional: Session backend ("tmux" or "pty")
 }
 
 // UpdateSessionRequest represents a request to update a session
@@ -70,8 +83,8 @@ type UpdateSessionRequest struct {
 
 // SessionInfo represents information about a session for API responses
 type SessionInfo struct {
-	ID              string           `json:"id"`
-	Metadata        SessionMetadata  `json:"metadata"`
+	ID       string          `json:"id"`
+	Metadata SessionMetadata `json:"metadata"`
 }
 
 // CreateSessionResponse represents the response when creating a session

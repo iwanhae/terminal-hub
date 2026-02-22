@@ -1,5 +1,7 @@
 import { apiFetch, throwApiError } from "../../shared/http/client";
 
+export type SessionBackend = "tmux" | "pty";
+
 export interface SessionMetadata {
   name: string;
   created_at: string;
@@ -8,6 +10,8 @@ export interface SessionMetadata {
   working_directory?: string;
   command?: string;
   env_vars?: Record<string, string>;
+  backend: SessionBackend;
+  backend_fallback?: string;
 }
 
 export interface SessionInfo {
@@ -21,6 +25,7 @@ export interface CreateSessionRequest {
   command?: string;
   env_vars?: Record<string, string>;
   shell_path?: string;
+  backend?: SessionBackend;
 }
 
 export interface CreateSessionResponse {
