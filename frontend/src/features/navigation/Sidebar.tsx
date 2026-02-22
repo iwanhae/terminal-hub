@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSessions } from "../sessions/useSessions";
 import { useCrons } from "../crons/useCrons";
@@ -8,10 +8,11 @@ import RenameSessionDialog from "../sessions/RenameSessionDialog";
 import type { SessionInfo } from "../sessions/api";
 import FileTransferPanel from "../terminal/FileTransferPanel";
 import FileTransferDrawer from "../terminal/FileTransferDrawer";
-import {
-  useFileTransfer,
-  type UseFileTransferResult,
-} from "../terminal/useFileTransfer";
+import { useFileTransfer } from "../terminal/useFileTransfer";
+import MobileCommandBar from "../../components/ui/MobileCommandBar";
+import MobileCommandButton from "../../components/ui/MobileCommandButton";
+import MobileCommandSheet from "../../components/ui/MobileCommandSheet";
+import { MOBILE_COMMAND_OPEN_EVENT } from "../../shared/mobileCommandEvents";
 
 type SidebarProps = Readonly<{
   containerClassName?: string;
@@ -27,6 +28,7 @@ type SessionListItemProps = Readonly<{
   onRename: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   onCloseMenu?: () => void;
+  actionMode?: "hover" | "always";
 }>;
 
 function SessionListItem({
@@ -37,7 +39,13 @@ function SessionListItem({
   onRename,
   onDelete,
   onCloseMenu,
+  actionMode = "hover",
 }: SessionListItemProps) {
+  const actionsClassName =
+    actionMode === "always"
+      ? "flex items-center gap-1"
+      : "flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all";
+
   return (
     <div
       className={`flex items-center p-2 rounded-md transition-all group ${
@@ -72,11 +80,12 @@ function SessionListItem({
         )}
       </button>
       {!collapsed && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+        <div className={actionsClassName}>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               onRename(session.id);
+              onCloseMenu?.();
             }}
             className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-all"
             title="Rename session"
@@ -96,8 +105,8 @@ function SessionListItem({
             </svg>
           </button>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               onDelete(session.id, session.metadata.name);
             }}
             className="p-1 rounded hover:bg-red-900/30 text-zinc-500 hover:text-red-400 transition-all"
@@ -126,265 +135,149 @@ function SessionListItem({
   );
 }
 
-type MobileFabProps = Readonly<{
-  fabOpen: boolean;
-  setFabOpen: (open: boolean) => void;
+type MobileCommandMenuProps = Readonly<{
+  open: boolean;
+  onClose: () => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   filteredSessions: SessionInfo[];
   cronCount: number;
   currentSessionId: string | null;
+  currentPathname: string;
   onNavigate: (id: string) => void;
   onNavigateToDashboard: () => void;
   onNavigateToCrons: () => void;
   onRename: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   onCreateSession: () => void;
-  dockToKeyBar: boolean;
-  transferSessionId: string | null;
-  transferSessionName: string;
-  transfer: UseFileTransferResult;
+  onOpenFiles: () => void;
+  onLogout: () => void;
 }>;
 
-function MobileFab({
-  fabOpen,
-  setFabOpen,
+function MobileCommandMenu({
+  open,
+  onClose,
   searchQuery,
   setSearchQuery,
   filteredSessions,
   cronCount,
   currentSessionId,
+  currentPathname,
   onNavigate,
   onNavigateToDashboard,
   onNavigateToCrons,
   onRename,
   onDelete,
   onCreateSession,
-  dockToKeyBar,
-  transferSessionId,
-  transferSessionName,
-  transfer,
-}: MobileFabProps) {
-  const fabRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [showFilesSheet, setShowFilesSheet] = useState(false);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        fabOpen &&
-        fabRef.current &&
-        !fabRef.current.contains(event.target as Node) &&
-        menuRef.current &&
-        !menuRef.current.contains(event.target as Node)
-      ) {
-        setFabOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [fabOpen, setFabOpen]);
-
-  // Keep FAB fixed on mobile. On terminal pages it sits slightly higher
-  // so it does not overlap the extra key bar.
-  const wrapperClassName = dockToKeyBar
-    ? "md:hidden fixed bottom-20 right-4 z-50"
-    : "md:hidden fixed bottom-6 right-6 z-50";
-  const menuClassName = dockToKeyBar
-    ? "absolute bottom-14 right-0 w-72"
-    : "absolute bottom-20 right-0 w-72";
-  const fabSizeClass = dockToKeyBar ? "w-10 h-10" : "w-14 h-14";
-  const iconSizeClass = dockToKeyBar ? "w-4 h-4" : "w-6 h-6";
+  onOpenFiles,
+  onLogout,
+}: MobileCommandMenuProps) {
+  const isDashboardActive = currentPathname === "/";
+  const isCronsActive = currentPathname === "/crons";
+  const cronLabel =
+    cronCount > 0 ? `Cron Jobs (${String(cronCount)})` : "Cron Jobs";
 
   return (
-    <div className={wrapperClassName}>
-      <div ref={fabRef}>
-        <button
-          onClick={() => setFabOpen(!fabOpen)}
-          className={`${fabSizeClass} rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
-            fabOpen
-              ? "bg-zinc-700 rotate-45"
-              : "bg-emerald-600 hover:bg-emerald-500"
-          }`}
-          data-testid="fab-button"
-          aria-label={fabOpen ? "Close menu" : "Open menu"}
-        >
-          <svg
-            className={`${iconSizeClass} text-white`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 5v14M5 12h14"
-            />
-          </svg>
-        </button>
-      </div>
-
-      <div
-        ref={menuRef}
-        className={`${menuClassName} bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden transition-all duration-300 ${
-          fabOpen
-            ? "opacity-100 transform translate-y-0 scale-100"
-            : "opacity-0 transform translate-y-4 scale-95 pointer-events-none"
-        }`}
-      >
-        <div className="h-12 flex items-center justify-between px-4 border-b border-zinc-800">
-          <button
-            onClick={() => {
-              onNavigateToDashboard();
-              setFabOpen(false);
-            }}
-            className="font-semibold text-zinc-100 tracking-tight text-sm hover:text-emerald-300 transition-colors"
-            title="Go to Dashboard"
-          >
-            Terminal Hub
-          </button>
-          <button
-            onClick={() => setFabOpen(false)}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
-            title="Close"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div className="p-3 space-y-2">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Filter sessions..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950/70 border border-zinc-700/80 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-400 transition-colors"
-            />
-          </div>
-          <button
+    <MobileCommandSheet open={open} onClose={onClose} title="Terminal Hub">
+      <div className="space-y-3">
+        <div className="space-y-2">
+          <input
+            type="text"
+            placeholder="Filter sessions..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="w-full bg-zinc-950/70 border border-zinc-700/80 rounded-md px-2.5 py-2 text-sm text-zinc-200 focus:outline-none focus:border-emerald-400 transition-colors"
+          />
+          <MobileCommandButton
+            label="New Session"
+            icon={<span>+</span>}
+            tone="primary"
+            size="md"
+            className="w-full justify-center"
+            testId="create-session-mobile"
             onClick={() => {
               onCreateSession();
-              setFabOpen(false);
+              onClose();
             }}
-            className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white p-2 rounded-md shadow-sm transition-all"
-            title="Create Session"
-            data-testid="create-session-mobile"
-          >
-            <span className="text-lg leading-none">+</span>
-            <span className="text-sm font-medium">New Session</span>
-          </button>
+          />
         </div>
 
-        <div className="max-h-60 overflow-y-auto px-3 pb-3 space-y-1">
-          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-2">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/60">
+          <div className="px-2.5 py-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
             Sessions
           </div>
-          {filteredSessions.length === 0 ? (
-            <p className="text-zinc-600 text-sm text-center py-4">
-              {searchQuery ? "No matches" : "No active sessions"}
-            </p>
-          ) : (
-            filteredSessions.map((session) => (
-              <SessionListItem
-                key={session.id}
-                session={session}
-                isActive={session.id === currentSessionId}
-                collapsed={false}
-                onNavigate={onNavigate}
-                onRename={onRename}
-                onDelete={onDelete}
-                onCloseMenu={() => setFabOpen(false)}
-              />
-            ))
-          )}
-        </div>
-
-        <div className="p-3 border-t border-zinc-800 space-y-1">
-          <button
-            onClick={() => {
-              setShowFilesSheet(true);
-              setFabOpen(false);
-            }}
-            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
-            title="Files"
-          >
-            <span className="text-lg">[F]</span>
-            <span className="text-sm font-medium flex-1 text-left">Files</span>
-          </button>
-          <button
-            onClick={() => {
-              onNavigateToCrons();
-              setFabOpen(false);
-            }}
-            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
-            title="Cron Jobs"
-          >
-            <span className="text-lg">⏰</span>
-            <span className="text-sm font-medium flex-1 text-left">
-              Cron Jobs
-            </span>
-            {cronCount > 0 && (
-              <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
-                {cronCount}
-              </span>
+          <div className="max-h-60 overflow-y-auto p-2 space-y-1">
+            {filteredSessions.length === 0 ? (
+              <p className="text-zinc-600 text-sm text-center py-4">
+                {searchQuery ? "No matches" : "No active sessions"}
+              </p>
+            ) : (
+              filteredSessions.map((session) => (
+                <SessionListItem
+                  key={session.id}
+                  session={session}
+                  isActive={session.id === currentSessionId}
+                  collapsed={false}
+                  actionMode="always"
+                  onNavigate={onNavigate}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                  onCloseMenu={onClose}
+                />
+              ))
             )}
-          </button>
-          <button
-            onClick={() => {
-              onNavigateToDashboard();
-              setFabOpen(false);
-            }}
-            className="w-full flex items-center gap-3 p-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors bg-zinc-800 text-zinc-100"
-            title="Dashboard"
-          >
-            <span className="text-lg">☖</span>
-            <span className="text-sm font-medium">Dashboard</span>
-          </button>
-        </div>
-      </div>
-
-      {showFilesSheet && (
-        <div className="fixed inset-0 z-[85] bg-black/70 backdrop-blur-sm p-3 flex items-end">
-          <div className="w-full max-h-[85vh] overflow-y-auto rounded-t-2xl border border-zinc-700 bg-zinc-900 p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-zinc-100">Files</p>
-              <button
-                type="button"
-                className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1 text-sm text-zinc-300"
-                onClick={() => setShowFilesSheet(false)}
-              >
-                Close
-              </button>
-            </div>
-            <FileTransferPanel
-              variant="mobile-sheet"
-              sessionId={transferSessionId}
-              sessionName={transferSessionName}
-              transfer={transfer}
-            />
           </div>
         </div>
-      )}
-    </div>
+
+        <div className="space-y-2">
+          <MobileCommandButton
+            label="Files"
+            icon={<span>[F]</span>}
+            className="w-full justify-start"
+            size="md"
+            onClick={() => {
+              onOpenFiles();
+              onClose();
+            }}
+          />
+          <MobileCommandButton
+            label={cronLabel}
+            icon={<span>⏰</span>}
+            className="w-full justify-start"
+            size="md"
+            active={isCronsActive}
+            onClick={() => {
+              onNavigateToCrons();
+              onClose();
+            }}
+          />
+          <MobileCommandButton
+            label="Dashboard"
+            icon={<span>☖</span>}
+            className="w-full justify-start"
+            size="md"
+            active={isDashboardActive}
+            onClick={() => {
+              onNavigateToDashboard();
+              onClose();
+            }}
+          />
+          <MobileCommandButton
+            label="Logout"
+            icon={<span>⏻</span>}
+            tone="danger"
+            size="md"
+            className="w-full justify-start"
+            onClick={() => {
+              onLogout();
+              onClose();
+            }}
+          />
+        </div>
+      </div>
+    </MobileCommandSheet>
   );
 }
-
-export { MobileFab };
 
 export default function Sidebar({
   containerClassName = "",
@@ -400,14 +293,16 @@ export default function Sidebar({
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [showFilesDrawer, setShowFilesDrawer] = useState(false);
+  const [showFilesSheet, setShowFilesSheet] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [fabOpen, setFabOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const transfer = useFileTransfer("/tmp");
 
   const currentSessionId = location.pathname.startsWith("/session/")
     ? location.pathname.split("/")[2]
     : null;
+  const isTerminalRoute = location.pathname.startsWith("/session/");
 
   useEffect(() => {
     const handleShortcut = () => setShowCreateDialog(true);
@@ -416,10 +311,19 @@ export default function Sidebar({
       window.removeEventListener("create-session-shortcut", handleShortcut);
   }, []);
 
+  useEffect(() => {
+    const handleMobileMenuOpen = () => setMobileMenuOpen(true);
+    window.addEventListener(MOBILE_COMMAND_OPEN_EVENT, handleMobileMenuOpen);
+    return () =>
+      window.removeEventListener(
+        MOBILE_COMMAND_OPEN_EVENT,
+        handleMobileMenuOpen,
+      );
+  }, []);
+
   const filteredSessions = sessions.filter((session) =>
     session.metadata.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-  const dockFabToKeyBar = location.pathname.startsWith("/session/");
   const activeTransferSession =
     sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
   const transferSessionId = activeTransferSession?.id ?? null;
@@ -516,7 +420,7 @@ export default function Sidebar({
                 type="text"
                 placeholder="Filter sessions..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(event) => setSearchQuery(event.target.value)}
                 className="w-full bg-zinc-950/70 border border-zinc-700/80 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-emerald-400 transition-colors"
               />
             </div>
@@ -647,25 +551,54 @@ export default function Sidebar({
         transfer={transfer}
       />
 
-      <MobileFab
-        fabOpen={fabOpen}
-        setFabOpen={setFabOpen}
+      {!isTerminalRoute && (
+        <MobileCommandBar floating>
+          <MobileCommandButton
+            label="Menu"
+            icon={<span>☰</span>}
+            tone="primary"
+            size="md"
+            className="w-full justify-center"
+            testId="mobile-menu-button"
+            onClick={() => setMobileMenuOpen(true)}
+          />
+        </MobileCommandBar>
+      )}
+
+      <MobileCommandMenu
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         filteredSessions={filteredSessions}
         cronCount={crons.length}
         currentSessionId={currentSessionId}
+        currentPathname={location.pathname}
         onNavigate={handleNavigate}
         onNavigateToDashboard={handleNavigateToDashboard}
         onNavigateToCrons={handleNavigateToCrons}
         onRename={setRenameSessionId}
         onDelete={handleDeleteSession}
         onCreateSession={() => setShowCreateDialog(true)}
-        dockToKeyBar={dockFabToKeyBar}
-        transferSessionId={transferSessionId}
-        transferSessionName={transferSessionName}
-        transfer={transfer}
+        onOpenFiles={() => setShowFilesSheet(true)}
+        onLogout={() => {
+          void logout();
+        }}
       />
+
+      <MobileCommandSheet
+        open={showFilesSheet}
+        onClose={() => setShowFilesSheet(false)}
+        title="Files"
+        zIndexClassName="z-[86]"
+      >
+        <FileTransferPanel
+          variant="mobile-sheet"
+          sessionId={transferSessionId}
+          sessionName={transferSessionName}
+          transfer={transfer}
+        />
+      </MobileCommandSheet>
 
       {showCreateDialog && (
         <CreateSessionDialog onClose={() => setShowCreateDialog(false)} />
@@ -675,7 +608,8 @@ export default function Sidebar({
         <RenameSessionDialog
           sessionId={renameSessionId}
           currentName={
-            sessions.find((s) => s.id === renameSessionId)?.metadata.name ?? ""
+            sessions.find((session) => session.id === renameSessionId)?.metadata
+              .name ?? ""
           }
           onClose={() => setRenameSessionId(null)}
         />
