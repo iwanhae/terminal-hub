@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import {
+  useNavigate,
+  useLocation,
+  type NavigateFunction,
+} from "react-router-dom";
 import { useSessions } from "../sessions/useSessions";
 import { useCrons } from "../crons/useCrons";
 import { useAuth } from "../auth/useAuth";
@@ -279,6 +283,27 @@ function MobileCommandMenu({
   );
 }
 
+function navigateWithHandler(
+  navigate: NavigateFunction,
+  path: string,
+  onNavigate?: () => void,
+) {
+  const result = navigate(path);
+  onNavigate?.();
+  if (result instanceof Promise) {
+    result.catch((error: Error) => {
+      console.error(error);
+    });
+  }
+}
+
+function getCurrentSessionId(pathname: string): string | null {
+  if (!pathname.startsWith("/session/")) {
+    return null;
+  }
+  return pathname.split("/")[2] ?? null;
+}
+
 export default function Sidebar({
   containerClassName = "",
   onNavigate,
@@ -299,9 +324,7 @@ export default function Sidebar({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const transfer = useFileTransfer("/tmp");
 
-  const currentSessionId = location.pathname.startsWith("/session/")
-    ? location.pathname.split("/")[2]
-    : null;
+  const currentSessionId = getCurrentSessionId(location.pathname);
   const isTerminalRoute = location.pathname.startsWith("/session/");
 
   useEffect(() => {
@@ -330,33 +353,15 @@ export default function Sidebar({
   const transferSessionName = activeTransferSession?.metadata.name ?? "None";
 
   const handleNavigate = (sessionId: string) => {
-    const result = navigate(`/session/${sessionId}`);
-    onNavigate?.();
-    if (result instanceof Promise) {
-      result.catch((error: Error) => {
-        console.error(error);
-      });
-    }
+    navigateWithHandler(navigate, `/session/${sessionId}`, onNavigate);
   };
 
   const handleNavigateToDashboard = () => {
-    const result = navigate("/");
-    onNavigate?.();
-    if (result instanceof Promise) {
-      result.catch((error: Error) => {
-        console.error(error);
-      });
-    }
+    navigateWithHandler(navigate, "/", onNavigate);
   };
 
   const handleNavigateToCrons = () => {
-    const result = navigate("/crons");
-    onNavigate?.();
-    if (result instanceof Promise) {
-      result.catch((error: Error) => {
-        console.error(error);
-      });
-    }
+    navigateWithHandler(navigate, "/crons", onNavigate);
   };
 
   const handleDeleteSession = (sessionId: string, sessionName: string) => {
@@ -366,13 +371,8 @@ export default function Sidebar({
 
     deleteSession(sessionId)
       .then(() => {
-        if (sessionId !== currentSessionId) return;
-        const result = navigate("/");
-        onNavigate?.();
-        if (result instanceof Promise) {
-          result.catch((error: Error) => {
-            console.error(error);
-          });
+        if (sessionId === currentSessionId) {
+          navigateWithHandler(navigate, "/", onNavigate);
         }
       })
       .catch((error: Error) => {

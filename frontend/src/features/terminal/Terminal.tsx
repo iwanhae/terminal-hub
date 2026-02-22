@@ -28,6 +28,47 @@ export type TerminalHandle = {
   pasteFromClipboard: () => Promise<void>;
 };
 
+type ClipboardShortcutAction = "copy" | "paste";
+
+function getClipboardShortcutAction(
+  event: KeyboardEvent,
+): ClipboardShortcutAction | null {
+  const hasNativeModifier = event.ctrlKey || event.metaKey;
+  if (!hasNativeModifier || !event.shiftKey || event.altKey) {
+    return null;
+  }
+
+  const key = event.key.toLowerCase();
+  if (key === "c") {
+    return "copy";
+  }
+  if (key === "v") {
+    return "paste";
+  }
+  return null;
+}
+
+function handleLatchedModifierInput(
+  event: KeyboardEvent,
+  modifiers: LatchedModifiers,
+  sendInput: (data: string) => void,
+  onConsumed: () => void,
+): boolean {
+  if (!hasLatchedModifiers(modifiers)) {
+    return true;
+  }
+
+  const sequence = sequenceFromLatchedKey(event.key, modifiers);
+  if (sequence == null) {
+    return true;
+  }
+
+  event.preventDefault();
+  sendInput(sequence);
+  onConsumed();
+  return false;
+}
+
 const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
   ({ wsUrl, latchedModifiers, onConsumeLatchedModifiers }, ref) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -393,51 +434,37 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       }
 
       function handleCustomKeyEvent(event: KeyboardEvent): boolean {
-        const hasNativeModifier = event.ctrlKey || event.metaKey;
-        const hasShift = event.shiftKey;
-
-        if (hasNativeModifier && hasShift && !event.altKey) {
-          const key = event.key.toLowerCase();
-          if (key === "c") {
-            if (event.type === "keydown") {
-              event.preventDefault();
+        const clipboardAction = getClipboardShortcutAction(event);
+        if (clipboardAction != null) {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            if (clipboardAction === "copy") {
               void copySelectionToClipboard();
-            }
-            return false;
-          }
-
-          if (key === "v") {
-            if (event.type === "keydown") {
-              event.preventDefault();
+            } else {
               void pasteFromClipboard();
             }
-            return false;
           }
+          return false;
         }
 
-        if (event.type !== "keydown") {
+        if (
+          event.type !== "keydown" ||
+          event.ctrlKey ||
+          event.altKey ||
+          event.metaKey
+        ) {
           return true;
         }
 
-        if (event.ctrlKey || event.altKey || event.metaKey) {
-          return true;
-        }
-
-        const modifiers = latchedModifiersRef.current;
-        if (!hasLatchedModifiers(modifiers)) {
-          return true;
-        }
-
-        const sequence = sequenceFromLatchedKey(event.key, modifiers);
-        if (sequence == null) {
-          return true;
-        }
-
-        event.preventDefault();
-        sendInputRef.current(sequence);
-        latchedModifiersRef.current = DEFAULT_LATCHED_MODIFIERS;
-        onConsumeLatchedModifiersRef.current?.();
-        return false;
+        return handleLatchedModifierInput(
+          event,
+          latchedModifiersRef.current,
+          sendInputRef.current,
+          () => {
+            latchedModifiersRef.current = DEFAULT_LATCHED_MODIFIERS;
+            onConsumeLatchedModifiersRef.current?.();
+          },
+        );
       }
 
       // Calculate exponential backoff delay with max cap

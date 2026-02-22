@@ -6,6 +6,117 @@ type UploadResponse = {
   size?: number;
 };
 
+type UploadPayload =
+  | {
+      file: File;
+      uploadPath: string;
+      uploadFilename: string;
+    }
+  | {
+      error: string;
+    };
+
+type UploadResult =
+  | {
+      type: "success";
+      size?: number;
+    }
+  | {
+      type: "canceled";
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
+function setErrorTransferStatus(
+  setTransferStatus: (value: string) => void,
+  message: string,
+) {
+  setTransferStatus(message);
+  toast.error(message);
+}
+
+function buildUploadPayload(
+  selectedFile: File | null,
+  uploadPath: string,
+  uploadFilename: string,
+): UploadPayload {
+  if (selectedFile === null) {
+    return { error: "Select a file before uploading." };
+  }
+
+  const trimmedUploadPath = uploadPath.trim();
+  const trimmedUploadFilename = uploadFilename.trim();
+  if (trimmedUploadPath === "" || trimmedUploadFilename === "") {
+    return { error: "Upload path and filename are required." };
+  }
+
+  return {
+    file: selectedFile,
+    uploadPath: trimmedUploadPath,
+    uploadFilename: trimmedUploadFilename,
+  };
+}
+
+async function sendUploadRequest(
+  file: File,
+  uploadPath: string,
+  uploadFilename: string,
+  overwrite: boolean,
+): Promise<Response> {
+  const params = new URLSearchParams({
+    path: uploadPath,
+    filename: uploadFilename,
+  });
+  if (overwrite) {
+    params.set("overwrite", "true");
+  }
+
+  return apiFetch(`/upload?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+}
+
+async function runUploadRequest(
+  file: File,
+  uploadPath: string,
+  uploadFilename: string,
+): Promise<UploadResult> {
+  let overwrite = false;
+
+  for (;;) {
+    const response = await sendUploadRequest(
+      file,
+      uploadPath,
+      uploadFilename,
+      overwrite,
+    );
+    if (response.status === 409 && !overwrite) {
+      const shouldOverwrite = window.confirm(
+        `File "${uploadFilename}" already exists. Overwrite it?`,
+      );
+      if (!shouldOverwrite) {
+        return { type: "canceled" };
+      }
+      overwrite = true;
+      continue;
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { type: "error", message: `Upload failed: ${errorText}` };
+    }
+
+    const result = (await response.json()) as UploadResponse;
+    return { type: "success", size: result.size };
+  }
+}
+
 export interface UseFileTransferResult {
   selectedFile: File | null;
   uploadPath: string;
@@ -50,81 +161,46 @@ export function useFileTransfer(
 
   const uploadSelectedFile = useCallback(() => {
     const runUpload = async () => {
-      if (selectedFile === null) {
-        const message = "Select a file before uploading.";
-        setTransferStatus(message);
-        toast.error(message);
-        return;
-      }
-
-      const trimmedUploadPath = uploadPath.trim();
-      const trimmedUploadFilename = uploadFilename.trim();
-      if (trimmedUploadPath === "" || trimmedUploadFilename === "") {
-        const message = "Upload path and filename are required.";
-        setTransferStatus(message);
-        toast.error(message);
+      const payload = buildUploadPayload(
+        selectedFile,
+        uploadPath,
+        uploadFilename,
+      );
+      if ("error" in payload) {
+        setErrorTransferStatus(setTransferStatus, payload.error);
         return;
       }
 
       setUploading(true);
       setTransferStatus("Uploading...");
 
-      let overwrite = false;
       try {
-        for (;;) {
-          const params = new URLSearchParams({
-            path: trimmedUploadPath,
-            filename: trimmedUploadFilename,
-          });
-          if (overwrite) {
-            params.set("overwrite", "true");
-          }
-
-          const response = await apiFetch(`/upload?${params.toString()}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": selectedFile.type || "application/octet-stream",
-            },
-            body: selectedFile,
-          });
-
-          if (response.status === 409 && !overwrite) {
-            const shouldOverwrite = window.confirm(
-              `File "${trimmedUploadFilename}" already exists. Overwrite it?`,
-            );
-            if (!shouldOverwrite) {
-              const message = "Upload canceled.";
-              setTransferStatus(message);
-              return;
-            }
-            overwrite = true;
-            continue;
-          }
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            const message = `Upload failed: ${errorText}`;
-            setTransferStatus(message);
-            toast.error(message);
-            return;
-          }
-
-          const result = (await response.json()) as UploadResponse;
-          const sizeLabel =
-            typeof result.size === "number"
-              ? `${result.size} bytes`
-              : "success";
-
-          const message = `Upload complete: ${trimmedUploadFilename} (${sizeLabel}).`;
-          setTransferStatus(message);
-          toast.success(`Uploaded ${trimmedUploadFilename}`);
+        const result = await runUploadRequest(
+          payload.file,
+          payload.uploadPath,
+          payload.uploadFilename,
+        );
+        if (result.type === "canceled") {
+          setTransferStatus("Upload canceled.");
           return;
         }
+
+        if (result.type === "error") {
+          setErrorTransferStatus(setTransferStatus, result.message);
+          return;
+        }
+
+        const sizeLabel =
+          typeof result.size === "number" ? `${result.size} bytes` : "success";
+        const message = `Upload complete: ${payload.uploadFilename} (${sizeLabel}).`;
+        setTransferStatus(message);
+        toast.success(`Uploaded ${payload.uploadFilename}`);
       } catch (error_) {
         console.error("Upload failed:", error_);
-        const message = "Upload failed: network or server error.";
-        setTransferStatus(message);
-        toast.error(message);
+        setErrorTransferStatus(
+          setTransferStatus,
+          "Upload failed: network or server error.",
+        );
       } finally {
         setUploading(false);
       }
@@ -132,10 +208,11 @@ export function useFileTransfer(
 
     runUpload().catch((error: Error) => {
       console.error("Upload failed:", error);
-      const message = "Upload failed: network or server error.";
-      setTransferStatus(message);
+      setErrorTransferStatus(
+        setTransferStatus,
+        "Upload failed: network or server error.",
+      );
       setUploading(false);
-      toast.error(message);
     });
   }, [selectedFile, uploadFilename, uploadPath]);
 
