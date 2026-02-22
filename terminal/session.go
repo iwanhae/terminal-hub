@@ -100,6 +100,7 @@ type TerminalSession struct {
 	// Lifecycle
 	closed  bool
 	closeMu sync.RWMutex
+	onExit  func() // bound callback, nil if not set
 }
 
 // SessionConfig holds configuration for creating a new session
@@ -113,6 +114,7 @@ type SessionConfig struct {
 	Backend          SessionBackend
 	HistorySize      int
 	PTYService       PTYService
+	OnExit           func(sessionID string) // Called when the underlying process exits naturally
 }
 
 type sessionStartResult struct {
@@ -175,6 +177,12 @@ func NewTerminalSession(config SessionConfig) (*TerminalSession, error) {
 		orderedClients:  make([]WebSocketClient, 0),
 		closed:          false,
 		outputRateLimit: make(chan struct{}, 500), // Max 500 messages per second
+	}
+
+	if config.OnExit != nil {
+		sessionID := config.ID
+		cb := config.OnExit
+		session.onExit = func() { cb(sessionID) }
 	}
 
 	// Start PTY reader goroutine
@@ -555,10 +563,18 @@ func (s *TerminalSession) readPTY() {
 
 		n, err := s.ptyFile.Read(buf)
 		if err != nil {
+			s.closeMu.RLock()
+			alreadyClosed := s.closed
+			s.closeMu.RUnlock()
+
 			if err == io.EOF {
-				log.Println("Shell process exited")
-			} else {
-				log.Printf("PTY read error: %v", err)
+				log.Printf("Session %s: shell process exited", s.id)
+			} else if !alreadyClosed {
+				log.Printf("Session %s: PTY read error: %v", s.id, err)
+			}
+
+			if !alreadyClosed && s.onExit != nil {
+				go s.onExit()
 			}
 			return
 		}

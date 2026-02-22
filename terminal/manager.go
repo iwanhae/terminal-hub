@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"log"
 	"sort"
 	"sync"
 )
@@ -136,13 +137,24 @@ func (sm *SessionManager) CreateSession(config SessionConfig) (Session, error) {
 		return nil, errors.New("session already exists")
 	}
 
+	sessionID := config.ID
+	config.OnExit = func(id string) {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		if sess, ok := sm.sessions[id]; ok {
+			_ = sess.Close() // resources already cleaned up, errors expected and ignored
+			delete(sm.sessions, id)
+			log.Printf("Session %s: removed after process exit", id)
+		}
+	}
+
 	// Create new session
 	sess, err := NewTerminalSession(config)
 	if err != nil {
 		return nil, err
 	}
 
-	sm.sessions[config.ID] = sess
+	sm.sessions[sessionID] = sess
 	return sess, nil
 }
 
