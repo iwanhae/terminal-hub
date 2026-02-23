@@ -107,6 +107,9 @@ ENV PATH="${HOME}/go/bin:${HOME}/.local/bin:/usr/local/go/bin:${PATH}"
 
 COPY tmux.conf $HOME/.tmux.conf
 
+ENV LANG=C.utf8
+ENV LC_ALL=C.utf8
+
 EXPOSE 8081
 
 VOLUME [ ${HOME} ]
