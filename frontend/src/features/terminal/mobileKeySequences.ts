@@ -6,6 +6,11 @@ export type LatchedModifiers = Readonly<{
 
 export type LatchedModifierKey = keyof LatchedModifiers;
 
+export type LatchedInputChunkResult = Readonly<{
+  applied: boolean;
+  output: string;
+}>;
+
 export const DEFAULT_LATCHED_MODIFIERS: LatchedModifiers = {
   ctrl: false,
   alt: false,
@@ -143,4 +148,38 @@ export function sequenceFromLatchedKey(
   }
 
   return sequence;
+}
+
+export function sequenceFromLatchedInputChunk(
+  inputChunk: string,
+  modifiers: LatchedModifiers,
+): LatchedInputChunkResult {
+  if (inputChunk.length === 0 || !hasLatchedModifiers(modifiers)) {
+    return {
+      applied: false,
+      output: inputChunk,
+    };
+  }
+
+  const characters = [...inputChunk];
+  const firstCharacter = characters.shift();
+  if (firstCharacter == null) {
+    return {
+      applied: false,
+      output: inputChunk,
+    };
+  }
+
+  const sequence = sequenceFromLatchedKey(firstCharacter, modifiers);
+  if (sequence == null) {
+    return {
+      applied: false,
+      output: inputChunk,
+    };
+  }
+
+  return {
+    applied: true,
+    output: `${sequence}${characters.join("")}`,
+  };
 }

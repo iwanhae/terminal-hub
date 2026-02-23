@@ -12,6 +12,7 @@ import toast from "react-hot-toast";
 import {
   DEFAULT_LATCHED_MODIFIERS,
   hasLatchedModifiers,
+  sequenceFromLatchedInputChunk,
   sequenceFromLatchedKey,
   type LatchedModifiers,
 } from "./mobileKeySequences";
@@ -846,7 +847,20 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         }
       };
 
-      terminal.onData((data) => sendInputRef.current(data));
+      terminal.onData((data) => {
+        const input = sequenceFromLatchedInputChunk(
+          data,
+          latchedModifiersRef.current,
+        );
+
+        sendInputRef.current(input.output);
+        if (!input.applied) {
+          return;
+        }
+
+        latchedModifiersRef.current = DEFAULT_LATCHED_MODIFIERS;
+        onConsumeLatchedModifiersRef.current?.();
+      });
 
       // Container resize handling with ResizeObserver
       let resizeTimeout: number;

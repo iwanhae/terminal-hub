@@ -121,6 +121,51 @@ test("latched ctrl applies to the next native keypress", async ({
     .toBeTruthy();
 });
 
+test("latched ctrl applies to ime-style insertText input", async ({
+  page,
+  request,
+}) => {
+  const sessionId = await createSession(request);
+
+  const inputFrames: Array<{ type: string; data?: string }> = [];
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (payload) => {
+      try {
+        const json = JSON.parse(payload);
+        if (json && json.type === "input") inputFrames.push(json);
+      } catch {
+        // ignore non-JSON frames
+      }
+    });
+  });
+
+  await page.goto(`/session/${sessionId}`);
+  await page.getByTestId("terminal-surface").click();
+  await page.getByTestId("extra-key-ctrl").click();
+  await page.keyboard.insertText("c");
+
+  await expect
+    .poll(() => inputFrames.some((frame) => frame.data === "\u0003"))
+    .toBeTruthy();
+
+  const ctrlFramesCount = inputFrames.filter(
+    (frame) => frame.data === "\u0003",
+  ).length;
+
+  await page.keyboard.insertText("c");
+  await expect
+    .poll(() => inputFrames.some((frame) => frame.data === "c"))
+    .toBeTruthy();
+
+  await expect
+    .poll(
+      () =>
+        inputFrames.filter((frame) => frame.data === "\u0003").length ===
+        ctrlFramesCount,
+    )
+    .toBeTruthy();
+});
+
 test("native keyboard input works after reconnect", async ({ page, request }) => {
   const sessionId = await createSession(request);
 
