@@ -177,11 +177,29 @@ func isSecure(r *http.Request) bool {
 		r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
+func writeLoginResponse(w http.ResponseWriter, statusCode int, success bool, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(auth.LoginResponse{
+		Success: success,
+		Message: message,
+	})
+}
+
 // handleLogin handles POST /api/auth/login
-func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager) {
+func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager, banTracker *loginFail2Ban) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+
+	clientIP := extractClientIP(r)
+	if banTracker != nil {
+		if banned, remaining := banTracker.IsBanned(clientIP, time.Now()); banned {
+			logBannedLoginAttempt(clientIP, remaining)
+			writeLoginResponse(w, http.StatusTooManyRequests, false, loginBanMessage(remaining))
+			return
+		}
 	}
 
 	var req auth.LoginRequest
@@ -192,13 +210,24 @@ func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager
 
 	// Validate credentials
 	if !sm.ValidateCredentials(req.Username, req.Password) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(auth.LoginResponse{
-			Success: false,
-			Message: "Invalid username or password",
-		})
+		if banTracker == nil {
+			writeLoginResponse(w, http.StatusUnauthorized, false, "Invalid username or password")
+			return
+		}
+
+		banned, remaining := banTracker.RecordFailure(clientIP, time.Now())
+		if banned {
+			logIPBanTriggered(clientIP, remaining)
+			writeLoginResponse(w, http.StatusTooManyRequests, false, loginBanMessage(remaining))
+			return
+		}
+
+		writeLoginResponse(w, http.StatusUnauthorized, false, "Invalid username or password")
 		return
+	}
+
+	if banTracker != nil {
+		banTracker.Reset(clientIP)
 	}
 
 	// Create session
@@ -220,11 +249,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request, sm *auth.SessionManager
 		Path:     "/",
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(auth.LoginResponse{
-		Success: true,
-		Message: "Login successful",
-	})
+	writeLoginResponse(w, http.StatusOK, true, "Login successful")
 }
 
 // handleLogout handles POST /api/auth/logout
@@ -1216,6 +1241,9 @@ func Run() {
 		log.Fatal("Failed to initialize session manager:", err)
 	}
 
+	loginBanTracker := newLoginFail2Ban(defaultMaxLoginFailures, defaultLoginBanDuration)
+	go loginBanTracker.StartCleanupLoop(5 * time.Minute)
+
 	// Initialize CronManager if enabled
 	if cron.IsCronEnabledFromEnv() {
 		cronFile := cron.GetCronFilePathFromEnv()
@@ -1249,7 +1277,7 @@ func Run() {
 
 	// Public routes (no auth)
 	http.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		handleLogin(w, r, sessionAuthManager)
+		handleLogin(w, r, sessionAuthManager, loginBanTracker)
 	})
 	http.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		handleLogout(w, r, sessionAuthManager)

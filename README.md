@@ -119,6 +119,8 @@ Set the following environment variables:
 
 If both username and password are set, authentication is **required** for all access. If either is missing or empty, the application runs in open mode.
 
+Login brute-force protection is enabled on the login endpoint: 10 failed attempts from the same IP triggers a 1-hour temporary ban.
+
 ### Examples
 
 **Using environment variables:**
@@ -163,6 +165,7 @@ services:
 4. **Sliding Expiration**: Sessions extend with activity (up to TTL)
 5. **Cryptographic Tokens**: 256-bit random session tokens
 6. **Background Cleanup**: Expired sessions removed every 5 minutes
+7. **IP Fail2Ban**: 10 failed logins from one IP are blocked for 1 hour
 
 ### Security Notes
 
@@ -271,7 +274,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed development documentation including:
 
 ### Authentication
 
-- `POST /api/auth/login` - Login with username/password (sets session cookie)
+- `POST /api/auth/login` - Login with username/password (sets session cookie, returns `429` when IP is temporarily banned)
 - `POST /api/auth/logout` - Logout (clears session cookie)
 - `GET /api/auth/status` - Get current authentication status
 
