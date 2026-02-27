@@ -2,12 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,6 +72,13 @@ const (
 	uploadFilenameHeader  = "X-Terminal-Hub-Upload-Filename"
 	uploadOverwriteHeader = "X-Terminal-Hub-Upload-Overwrite"
 	uploadCopyBufferSize  = 64 * 1024
+)
+
+var (
+	websocketWriteWait        = 5 * time.Second
+	websocketPongWait         = 60 * time.Second
+	websocketPingPeriod       = 25 * time.Second
+	websocketReadLimit  int64 = 64 * 1024
 )
 
 var uploadCopyBufferPool = sync.Pool{
@@ -1090,6 +1099,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("Upgrade error:", err)
 		return
 	}
+	conn.SetReadLimit(websocketReadLimit)
+	if err := conn.SetReadDeadline(time.Now().Add(websocketPongWait)); err != nil {
+		log.Printf("Error setting initial read deadline: %v", err)
+	}
+	conn.SetPongHandler(func(appData string) error {
+		return conn.SetReadDeadline(time.Now().Add(websocketPongWait))
+	})
 
 	// Create WebSocket client wrapper
 	wsClient := &WebSocketClientImpl{
@@ -1117,32 +1133,38 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Write pump
 	go func() {
-		// Set write timeout to prevent hanging on slow clients
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		pingTicker := time.NewTicker(websocketPingPeriod)
+		defer pingTicker.Stop()
+
 		for {
-			message, ok := <-wsClient.send
-			if !ok {
-				if writeErr := conn.WriteMessage(websocket.CloseMessage, []byte{}); writeErr != nil {
-					log.Printf("Error writing close message: %v", writeErr)
+			select {
+			case message, ok := <-wsClient.send:
+				if !ok {
+					return
 				}
-				return
-			}
 
-			// Reset write deadline before each message
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				// Reset write deadline before each message
+				_ = conn.SetWriteDeadline(time.Now().Add(websocketWriteWait))
 
-			w, err := conn.NextWriter(websocket.BinaryMessage)
-			if err != nil {
-				log.Printf("Error getting writer: %v", err)
-				return
-			}
-			if _, err := w.Write(message); err != nil {
-				log.Printf("Error writing to WebSocket: %v", err)
-				return
-			}
-			if err := w.Close(); err != nil {
-				log.Printf("Error closing writer: %v", err)
-				return
+				w, err := conn.NextWriter(websocket.BinaryMessage)
+				if err != nil {
+					log.Printf("Error getting writer: %v", err)
+					return
+				}
+				if _, err := w.Write(message); err != nil {
+					log.Printf("Error writing to WebSocket: %v", err)
+					return
+				}
+				if err := w.Close(); err != nil {
+					log.Printf("Error closing writer: %v", err)
+					return
+				}
+			case <-pingTicker.C:
+				_ = conn.SetWriteDeadline(time.Now().Add(websocketWriteWait))
+				if pingErr := conn.WriteMessage(websocket.PingMessage, nil); pingErr != nil {
+					log.Printf("Error sending ping frame: %v", pingErr)
+					return
+				}
 			}
 		}
 	}()
@@ -1151,6 +1173,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
+			var netErr net.Error
+			switch {
+			case errors.As(err, &netErr) && netErr.Timeout():
+				log.Printf("WebSocket read timeout for session %s; closing stale connection", sessionID)
+			case websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure):
+				log.Printf("WebSocket read error for session %s: %v", sessionID, err)
+			}
 			break
 		}
 

@@ -265,11 +265,17 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const reconnectTimeoutRef = useRef<number | null>(null);
     const isReconnectingRef = useRef<boolean>(false);
     const isManuallyClosedRef = useRef<boolean>(false);
+    const errorCloseGraceTimeoutRef = useRef<number | null>(null);
+    const lastHiddenAtRef = useRef<number | null>(null);
+    const lastResumeReconnectAtRef = useRef<number>(0);
 
     // Constants
     const MAX_RECONNECT_ATTEMPTS = 10;
     const BASE_RECONNECT_DELAY = 1000;
     const MAX_RECONNECT_DELAY = 30_000;
+    const ERROR_CLOSE_GRACE_MS = 1500;
+    const STALE_SOCKET_HIDDEN_MS = 30_000;
+    const RESUME_RECONNECT_COOLDOWN_MS = 5000;
 
     const focus = useCallback(() => {
       terminalInstanceRef.current?.focus();
@@ -632,6 +638,42 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         );
       };
 
+      const clearErrorCloseGraceTimeout = () => {
+        if (errorCloseGraceTimeoutRef.current !== null) {
+          clearTimeout(errorCloseGraceTimeoutRef.current);
+          errorCloseGraceTimeoutRef.current = null;
+        }
+      };
+
+      const closeSocketAfterErrorGrace = (socket: WebSocket) => {
+        if (isManuallyClosedRef.current || socket !== wsRef.current) {
+          return;
+        }
+
+        if (
+          socket.readyState !== WebSocket.OPEN &&
+          socket.readyState !== WebSocket.CONNECTING
+        ) {
+          return;
+        }
+
+        try {
+          socket.close();
+        } catch (closeError) {
+          console.error(
+            "Failed to close WebSocket after error grace period:",
+            closeError,
+          );
+        }
+      };
+
+      const scheduleErrorCloseFallback = (socket: WebSocket) => {
+        clearErrorCloseGraceTimeout();
+        errorCloseGraceTimeoutRef.current = window.setTimeout(() => {
+          closeSocketAfterErrorGrace(socket);
+        }, ERROR_CLOSE_GRACE_MS);
+      };
+
       const shouldRedirectToLogin = async (): Promise<boolean> => {
         try {
           const response = await apiFetch("/auth/status", undefined, {
@@ -656,6 +698,19 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
           terminal.focus();
         }, 0);
+      };
+
+      const beginReconnectFlow = (terminalInstance: Terminal) => {
+        if (isReconnectingRef.current) {
+          scheduleReconnect();
+          return;
+        }
+
+        isReconnectingRef.current = true;
+        terminalInstance.write(
+          "\r\n\x1b[31m[SYSTEM] Connection lost. Reconnecting...\x1b[0m\r\n",
+        );
+        scheduleReconnect();
       };
 
       const handleSocketClose = async (
@@ -692,16 +747,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         }
 
         // Only start reconnection if not already reconnecting
-        if (isReconnectingRef.current) {
-          // Connection closed while reconnecting, trigger next attempt
-          scheduleReconnect();
-        } else {
-          isReconnectingRef.current = true;
-          terminalInstance.write(
-            "\r\n\x1b[31m[SYSTEM] Connection lost. Reconnecting...\x1b[0m\r\n",
-          );
-          scheduleReconnect();
-        }
+        beginReconnectFlow(terminalInstance);
       };
 
       // Schedule a reconnection attempt
@@ -761,6 +807,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           }
 
           didOpen = true;
+          clearErrorCloseGraceTimeout();
           const wasReconnecting = isReconnectingRef.current;
           isReconnectingRef.current = false;
           reconnectAttemptsRef.current = 0;
@@ -793,6 +840,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         };
 
         ws.onclose = () => {
+          clearErrorCloseGraceTimeout();
           void handleSocketClose(terminal, ws, didOpen);
         };
 
@@ -802,8 +850,91 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           }
 
           console.error("WebSocket Error:", err);
-          // Note: We don't write to terminal here as onclose will handle it
+          // Some browser sleep/hibernation paths can surface `error` without
+          // a prompt `close`; force a close after a grace period to trigger reconnect.
+          scheduleErrorCloseFallback(ws);
         };
+      };
+
+      const forceReconnectForReason = (reason: string) => {
+        if (isManuallyClosedRef.current) {
+          return;
+        }
+
+        const now = Date.now();
+        if (
+          now - lastResumeReconnectAtRef.current <
+          RESUME_RECONNECT_COOLDOWN_MS
+        ) {
+          return;
+        }
+        lastResumeReconnectAtRef.current = now;
+
+        const activeSocket = wsRef.current;
+        if (
+          activeSocket == null ||
+          activeSocket.readyState === WebSocket.CLOSED
+        ) {
+          beginReconnectFlow(terminal);
+          return;
+        }
+
+        if (activeSocket.readyState === WebSocket.CLOSING) {
+          return;
+        }
+
+        try {
+          activeSocket.close(4000, reason);
+        } catch (error) {
+          console.error("Forced reconnect close failed:", error);
+          if (activeSocket === wsRef.current) {
+            wsRef.current = null;
+            beginReconnectFlow(terminal);
+          }
+        }
+      };
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "hidden") {
+          lastHiddenAtRef.current = Date.now();
+          return;
+        }
+
+        const hiddenSince = lastHiddenAtRef.current;
+        lastHiddenAtRef.current = null;
+        if (hiddenSince == null) {
+          return;
+        }
+
+        const hiddenDuration = Date.now() - hiddenSince;
+        const activeSocket = wsRef.current;
+        if (
+          hiddenDuration >= STALE_SOCKET_HIDDEN_MS ||
+          activeSocket == null ||
+          activeSocket.readyState !== WebSocket.OPEN
+        ) {
+          forceReconnectForReason(`visibility-resume-${hiddenDuration}ms`);
+        }
+      };
+
+      const handlePageShow = () => {
+        const activeSocket = wsRef.current;
+        if (
+          activeSocket == null ||
+          activeSocket.readyState !== WebSocket.OPEN
+        ) {
+          forceReconnectForReason("pageshow");
+        }
+      };
+
+      const handleOnline = () => {
+        const activeSocket = wsRef.current;
+        if (
+          activeSocket == null ||
+          activeSocket.readyState !== WebSocket.OPEN
+        ) {
+          forceReconnectForReason("online");
+        }
       };
 
       // Initial fit with small delay to ensure container is fully laid out
@@ -813,6 +944,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       // Initial WebSocket connection
       connectWebSocket();
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("pageshow", handlePageShow);
+      window.addEventListener("online", handleOnline);
 
       // Terminal input handling
       const sendInput = (data: string) => {
@@ -906,9 +1041,17 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         if (reconnectTimeoutRef.current !== null) {
           clearTimeout(reconnectTimeoutRef.current);
         }
+        clearErrorCloseGraceTimeout();
 
         // Dismiss reconnection toast if active
         toast.dismiss("reconnect-toast");
+
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange,
+        );
+        window.removeEventListener("pageshow", handlePageShow);
+        window.removeEventListener("online", handleOnline);
 
         clearTimeout(initialFitTimeout);
         clearTimeout(resizeTimeout);
